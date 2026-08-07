@@ -117,8 +117,8 @@ if uploaded_file is not None
     )
 
     st.metric(
-        Confidence,
-        f{confidence.2f}%
+    "Confidence",
+    f"{confidence:.2f}%"
     )
 
     # -------------------------
@@ -133,8 +133,8 @@ if uploaded_file is not None
         )  100
 
         st.write(
-            f{DISPLAY_NAMES[class_name]} 
-            f{probability.2f}%
+            f"{DISPLAY_NAMES[class_name]} "
+            f"{probability.2f}%"
         )
 
         st.progress(
