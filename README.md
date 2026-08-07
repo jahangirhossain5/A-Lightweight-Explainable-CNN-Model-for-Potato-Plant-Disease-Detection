@@ -8,6 +8,7 @@ To ensure trust and transparency, we integrated **Explainable AI (Grad-CAM)** to
 
 ## 🚀 Live Demo
 Check out the live web application here:
+https://a-lightweight-explainable-cnn-model-for-potato-plant-disease-d.streamlit.app/
 
 
 ## ✨ Key Features
