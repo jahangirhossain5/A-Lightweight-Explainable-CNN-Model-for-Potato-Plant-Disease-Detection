@@ -60,7 +60,7 @@ The dataset used is the **PlantVillage Dataset**, originally collected by Pennsy
 ## 🧠 Explainable AI (Grad-CAM)
 We used **Grad-CAM** to validate our model. The heatmaps below show that the model correctly focuses on the **lesions and spots** on the leaves rather than the background.
 
-*<img width="1452" height="1489" alt="download" src="https://github.com/user-attachments/assets/cb2f56ce-018c-4817-940e-52041418ba5e" />*
+*<img width="1452" height="1489" alt="download" src="" />*
 
 
 ## 👥 Contributors
