@@ -110,7 +110,7 @@ if uploaded_file is not None
     # -------------------------
     st.divider()
 
-    st.subheader(🔍 Prediction)
+    st.subheader("🔍 Prediction")
 
     st.success(
         fPrediction {DISPLAY_NAMES[predicted_class]}
@@ -124,7 +124,7 @@ if uploaded_file is not None
     # -------------------------
     # Probability
     # -------------------------
-    st.subheader(📊 Class Probabilities)
+    st.subheader("📊 Class Probabilities")
 
     for i, class_name in enumerate(CLASS_NAMES)
 
