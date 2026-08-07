@@ -2,7 +2,7 @@
 
 
 ## 📜 Overview
-This project presents a Deep Learning-based solution for the automated detection of plant diseases. We developed a **Custom Lightweight CNN** and compared its performance against industry-standard Transfer Learning models (**ResNet50** and **MobileNetV2**) on the **PlantVillage dataset** (38 classes).
+This project presents a Deep Learning-based solution for the automated detection of plant diseases. We developed a **Custom Lightweight CNN** and compared its performance against industry-standard Transfer Learning models (**ResNet50** and **MobileNetV2**) on the **🌱 Potato Plant Diseases Data 🍂** (3 classes).
 
 To ensure trust and transparency, we integrated **Explainable AI (Grad-CAM)** to visualize the decision-making process. The final model is deployed as a user-friendly **Streamlit Web Application**.
 
