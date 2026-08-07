@@ -43,7 +43,7 @@ model = load_model()
 # =========================
 # Title
 # =========================
-st.title(🥔 Potato Plant Disease Detection)
+st.title("🥔 Potato Plant Disease Detection")
 
 st.write(
     Upload a potato leaf image and the trained CNN model 
