@@ -7,9 +7,9 @@ from PIL import Image
 # Page Configuration
 # =========================
 st.set_page_config(
-    page_title=Potato Disease Detection,
-    page_icon=🥔,
-    layout=centered
+    page_title="Potato Disease Detection",
+    page_icon="🥔",
+    layout="centered"
 )
 
 # =========================
