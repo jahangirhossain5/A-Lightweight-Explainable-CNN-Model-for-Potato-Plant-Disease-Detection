@@ -60,7 +60,7 @@ The dataset used is the **PlantVillage Dataset**, originally collected by Pennsy
 ## 🧠 Explainable AI (Grad-CAM)
 We used **Grad-CAM** to validate our model. The heatmaps below show that the model correctly focuses on the **lesions and spots** on the leaves rather than the background.
 
-*<img width="1452" height="1489" alt="download" src="" />*
+*<img width="1452" height="1489" alt="download" src="https://github.com/jahangirhossain5/A-Lightweight-Explainable-CNN-Model-for-Potato-Plant-Disease-Detection/blob/a263fcbb8dc8b6d593ff9122b454121c99157e1a/Pred-Image.png" />*
 
 
 ## 👥 Contributors
