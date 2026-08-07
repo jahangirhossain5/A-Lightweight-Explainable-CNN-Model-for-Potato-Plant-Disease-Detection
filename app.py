@@ -16,15 +16,15 @@ st.set_page_config(
 # Class Names
 # =========================
 CLASS_NAMES = [
-    Potato___Early_blight,
-    Potato___Late_blight,
-    Potato___healthy
+    "Potato___Early_blight",
+    "Potato___Late_blight",
+    "Potato___healthy"
 ]
 
 DISPLAY_NAMES = {
-    Potato___Early_blight Early Blight,
-    Potato___Late_blight Late Blight,
-    Potato___healthy Healthy
+    "Potato___Early_blight": "Early Blight",
+    "Potato___Late_blight": "Late Blight",
+    "Potato___healthy": "Healthy"
 }
 
 # =========================
