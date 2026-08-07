@@ -1,8 +1,5 @@
-# 🌿 Lightweight CNN for Plant Disease Detection: Transfer Learning and XAI
+# 🌿 A Lightweight Explainable CNN Model for Potato Plant Disease Detection
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://plant-disease-detection-ogc4xelrfml9zsepjmgor5.streamlit.app/)
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange)](https://www.tensorflow.org/)
 
 ## 📜 Overview
 This project presents a Deep Learning-based solution for the automated detection of plant diseases. We developed a **Custom Lightweight CNN** and compared its performance against industry-standard Transfer Learning models (**ResNet50** and **MobileNetV2**) on the **PlantVillage dataset** (38 classes).
@@ -11,7 +8,7 @@ To ensure trust and transparency, we integrated **Explainable AI (Grad-CAM)** to
 
 ## 🚀 Live Demo
 Check out the live web application here:
-👉 **[Plant Disease Detection App](https://plant-disease-detection-ogc4xelrfml9zsepjmgor5.streamlit.app/)**
+
 
 ## ✨ Key Features
 * **Multi-Class Classification:** Detects 38 different disease classes across 14 crop species.
@@ -45,7 +42,7 @@ The dataset used is the **PlantVillage Dataset**, originally collected by Pennsy
 
 1.  **Clone the Repository**
     ```bash
-    git clone https://github.com/coderzaman/Plant-Disease-Detection-Streamlit-XAI.git
+    git clone https://github.com/jahangirhossain5/A-Lightweight-Explainable-CNN-Model-for-Potato-Plant-Disease-Detection
     cd your-repo-name
     ```
 
@@ -67,11 +64,11 @@ We used **Grad-CAM** to validate our model. The heatmaps below show that the mod
 
 ## 👥 Contributors
 This project was developed by:
-* **Aktaruzzaman** (Team Leader & Lead Developer)
-* **Sagar Saha** (Data Engineer)
-* **Md. Abdullah Al Mamun** (AI Analyst)
-* **Md. Najmul Parves** (Technical Writer)
-* **Siam Hossain** (Visual Designer)
+* **Jahangir Hossain Sohag** (Team Leader & Lead Developer)
+* **Al-Mamun** (Data Engineer)
+* **Tarikul Islam Sourav** (AI Analyst)
+* **Moniruzzaman** (Technical Writer)
+* **Farhana Yeasmin** (Visual Designer)
 
 ---
-*Developed for University Thesis / Final Year Project.*
+
