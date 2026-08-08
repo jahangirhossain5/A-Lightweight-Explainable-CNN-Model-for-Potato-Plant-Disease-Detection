@@ -2,7 +2,7 @@
 
 
 ## 📜 Overview
-This project presents a Deep Learning-based solution for the automated detection of plant diseases. We developed a **Custom Lightweight CNN** and compared its performance against industry-standard Transfer Learning models (**ResNet50** and **MobileNetV2**) on the **🌱 Potato Plant Diseases Data 🍂** (3 classes).
+This project presents a Deep Learning-based solution for the automated detection of plant diseases. We developed a **Custom Explainable Lightweight CNN** and compared its performance against industry-standard Transfer Learning models (**ResNet50** and **MobileNetV2**) on the **🌱 Potato Plant Diseases Data 🍂** (3 classes).
 
 To ensure trust and transparency, we integrated **Explainable AI (Grad-CAM)** to visualize the decision-making process. The final model is deployed as a user-friendly **Streamlit Web Application**.
 
@@ -12,7 +12,7 @@ https://a-lightweight-explainable-cnn-model-for-potato-plant-disease-d.streamlit
 
 
 ## ✨ Key Features
-* **Multi-Class Classification:** Detects 38 different disease classes across 14 crop species.
+* **Multi-Class Classification:** Detects 3 different disease classes across potato crop species.
 * **Lightweight Architecture:** Proposed Custom CNN has only **0.65M parameters** (vs. 24M in ResNet50), making it suitable for mobile/edge deployment.
 * **High Accuracy:** Achieved **98.71% test accuracy** with the Custom CNN.
 * **Explainable AI (XAI):** Uses **Grad-CAM** heatmaps to highlight infected leaf regions, verifying the model's focus.
@@ -34,9 +34,9 @@ https://a-lightweight-explainable-cnn-model-for-potato-plant-disease-d.streamlit
 * **Deployment:** Streamlit Cloud
 
 ## 📂 Dataset
-The dataset used is the **PlantVillage Dataset**, originally collected by Pennsylvania State University.
-* **Total Images:** 54,305
-* **Classes:** 38 (Disease + Healthy)
+The dataset used is the **🌱 Potato Plant Diseases Data 🍂**, originally collected by Hafiz Nouman, Pakistan.
+* **Total Images:** 2,305
+* **Classes:** 3 (Disease + Healthy)
 * **Augmentation:** Rotation, Zoom, Flip (On-the-fly)
 
 ## ⚙️ Installation & Usage
