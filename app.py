@@ -6,11 +6,11 @@ from datetime import datetime
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="Potato Disease Detection",
+    page_title="Potato Plant Disease Detection",
     page_icon="🥔",
     layout="wide"
 )
@@ -56,21 +56,38 @@ DISEASE_INFO = {
         "name": "Early Blight",
 
         "description":
-            "Early blight is a common potato leaf disease "
-            "that produces dark lesions on leaves.",
+            "Early blight is a fungal disease that can affect "
+            "potato foliage and reduce plant health.",
 
         "symptoms": [
             "Dark or brown spots on leaves",
             "Concentric ring-like lesions",
-            "Older leaves may be affected first",
-            "Severe infection can cause leaf drying"
+            "Older leaves may show symptoms first",
+            "Severe infection may cause leaf drying"
         ],
 
-        "recommendations": [
-            "Remove severely affected plant material where appropriate",
+        "causes": [
+            "Favorable environmental conditions",
+            "Extended leaf wetness",
+            "Infected plant material",
+            "Poor field sanitation"
+        ],
+
+        "prevention": [
             "Maintain good field sanitation",
-            "Avoid prolonged leaf wetness",
-            "Follow locally recommended disease-management practices"
+            "Monitor plants regularly",
+            "Avoid unnecessary prolonged leaf wetness",
+            "Use healthy planting material",
+            "Follow appropriate crop management practices"
+        ],
+
+        "management": [
+            "Identify affected plants early",
+            "Remove or manage severely affected plant material "
+            "where appropriate",
+            "Improve field ventilation",
+            "Reduce prolonged moisture on foliage",
+            "Follow locally approved disease-management practices"
         ]
     },
 
@@ -81,20 +98,36 @@ DISEASE_INFO = {
 
         "description":
             "Late blight is a serious potato disease that can "
-            "spread rapidly under favorable environmental conditions.",
+            "develop rapidly under favorable environmental conditions.",
 
         "symptoms": [
             "Dark irregular lesions",
             "Brown or black affected areas",
-            "Rapid disease development may occur",
+            "Rapid development of symptoms",
             "Leaves may become damaged and die"
         ],
 
-        "recommendations": [
-            "Remove severely affected plant material where appropriate",
-            "Improve field ventilation",
-            "Avoid prolonged moisture on leaves",
+        "causes": [
+            "Favorable cool and humid conditions",
+            "Extended leaf wetness",
+            "Infected plant material",
+            "Disease spread between plants"
+        ],
+
+        "prevention": [
+            "Monitor the crop frequently",
+            "Avoid prolonged leaf wetness",
+            "Maintain appropriate plant spacing",
+            "Remove affected plant material where appropriate",
             "Follow locally recommended disease-management practices"
+        ],
+
+        "management": [
+            "Act quickly after symptoms are detected",
+            "Remove or manage severely affected material where appropriate",
+            "Improve field ventilation",
+            "Reduce prolonged moisture on leaves",
+            "Follow locally approved management recommendations"
         ]
     },
 
@@ -111,13 +144,45 @@ DISEASE_INFO = {
             "Leaf appears comparatively healthy"
         ],
 
-        "recommendations": [
+        "causes": [],
+
+        "prevention": [
             "Continue regular crop monitoring",
             "Maintain appropriate irrigation and nutrition",
-            "Monitor plants regularly for new symptoms"
+            "Maintain field hygiene",
+            "Monitor regularly for new symptoms"
+        ],
+
+        "management": [
+            "No disease management is indicated by this prediction",
+            "Continue regular monitoring",
+            "Maintain good crop management practices"
         ]
     }
 }
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "uploaded_image" not in st.session_state:
+    st.session_state.uploaded_image = None
+
+if "file_name" not in st.session_state:
+    st.session_state.file_name = None
+
+if "prediction_done" not in st.session_state:
+    st.session_state.prediction_done = False
+
+if "predicted_class" not in st.session_state:
+    st.session_state.predicted_class = None
+
+if "confidence" not in st.session_state:
+    st.session_state.confidence = None
+
+if "probabilities" not in st.session_state:
+    st.session_state.probabilities = None
 
 
 # ============================================================
@@ -132,23 +197,19 @@ def load_model():
     )
 
 
-# ============================================================
-# SAFE MODEL LOADING
-# ============================================================
-
 try:
 
     model = load_model()
 
-except Exception as e:
+except Exception:
 
     st.error(
         "❌ Model could not be loaded."
     )
 
     st.info(
-        "Make sure explainable_cnn_model.keras "
-        "is uploaded to the GitHub repository."
+        "Make sure 'explainable_cnn_model.keras' "
+        "is available in your GitHub repository."
     )
 
     st.stop()
@@ -170,7 +231,6 @@ def preprocess_image(image):
         image
     ).astype("float32")
 
-    # Same preprocessing used during training
     img_array = img_array / 255.0
 
     img_array = np.expand_dims(
@@ -182,7 +242,7 @@ def preprocess_image(image):
 
 
 # ============================================================
-# PREDICTION
+# PREDICTION FUNCTION
 # ============================================================
 
 def predict_image(image):
@@ -223,16 +283,16 @@ def predict_image(image):
 
 def check_image_quality(image):
 
-    image_array = np.array(
+    img_array = np.array(
         image.convert("RGB")
     ).astype("float32")
 
     brightness = float(
-        np.mean(image_array)
+        np.mean(img_array)
     )
 
     contrast = float(
-        np.std(image_array)
+        np.std(img_array)
     )
 
     problems = []
@@ -257,21 +317,32 @@ def check_image_quality(image):
 
     if len(problems) == 0:
 
-        return True, "Image quality looks good."
+        return True, "Image quality looks acceptable."
 
     return False, " ".join(problems)
 
 
 # ============================================================
-# HTML REPORT
+# REPORT GENERATOR
 # ============================================================
 
-def create_report(
-    filename,
-    predicted_class,
-    confidence,
-    probabilities
-):
+def create_report():
+
+    predicted_class = (
+        st.session_state.predicted_class
+    )
+
+    confidence = (
+        st.session_state.confidence
+    )
+
+    probabilities = (
+        st.session_state.probabilities
+    )
+
+    filename = (
+        st.session_state.file_name
+    )
 
     disease = DISEASE_INFO[
         predicted_class
@@ -304,13 +375,11 @@ def create_report(
 
         symptoms += f"<li>{item}</li>"
 
-    recommendations = ""
+    management = ""
 
-    for item in disease["recommendations"]:
+    for item in disease["management"]:
 
-        recommendations += (
-            f"<li>{item}</li>"
-        )
+        management += f"<li>{item}</li>"
 
     html = f"""
     <html>
@@ -319,13 +388,16 @@ def create_report(
 
     <meta charset="UTF-8">
 
-    <title>Potato Disease Detection Report</title>
+    <title>
+    Potato Disease Detection Report
+    </title>
 
     <style>
 
     body {{
         font-family: Arial;
         margin: 40px;
+        line-height: 1.6;
     }}
 
     h1 {{
@@ -348,7 +420,9 @@ def create_report(
 
     <body>
 
-    <h1>Potato Disease Detection Report</h1>
+    <h1>
+    Potato Plant Disease Detection Report
+    </h1>
 
     <p>
     <b>Date:</b> {current_time}
@@ -380,10 +454,10 @@ def create_report(
     {symptoms}
     </ul>
 
-    <h2>Recommended Actions</h2>
+    <h2>Management</h2>
 
     <ul>
-    {recommendations}
+    {management}
     </ul>
 
     <h2>Class Probabilities</h2>
@@ -399,13 +473,6 @@ def create_report(
 
     </table>
 
-    <br>
-
-    <p>
-    This result is generated by a machine-learning model
-    and should be treated as decision-support information.
-    </p>
-
     </body>
 
     </html>
@@ -415,7 +482,7 @@ def create_report(
 
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # ============================================================
 
 st.sidebar.title(
@@ -423,13 +490,14 @@ st.sidebar.title(
 )
 
 page = st.sidebar.radio(
-    "Select Page",
+    "Navigation",
     [
         "🏠 Home",
         "🔍 Disease Detection",
         "📁 Batch Analysis",
         "🔥 Explainable AI",
         "🩺 Disease Information",
+        "🚑 Disease Solution",
         "📊 Model Comparison",
         "📈 Performance"
     ]
@@ -443,92 +511,35 @@ page = st.sidebar.radio(
 if page == "🏠 Home":
 
     st.title(
-        "🥔 Potato Plant Disease Detection"
+        "🥔 Potato Plant Disease Detection System"
     )
 
-    st.write(
+    st.markdown(
         """
-        An AI-based potato leaf disease detection
-        and decision-support system using a
-        lightweight Custom CNN.
+        ### AI-Powered Potato Leaf Analysis
+
+        Upload a potato leaf image once and click
+        **Analyze Image**.
+
+        The same image and prediction will then be
+        available throughout the application.
         """
     )
-
-    st.divider()
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-
-        st.metric(
-            "Model",
-            "Custom CNN"
-        )
-
-    with col2:
-
-        st.metric(
-            "Classes",
-            "3"
-        )
-
-    with col3:
-
-        st.metric(
-            "Input",
-            "224 × 224"
-        )
-
-    with col4:
-
-        st.metric(
-            "Preprocessing",
-            "1 / 255"
-        )
 
     st.divider()
 
     st.subheader(
-        "System Features"
-    )
-
-    features = [
-        "Single Image Disease Detection",
-        "Confidence Score",
-        "Class Probability",
-        "Image Quality Check",
-        "Batch Image Analysis",
-        "Explainable AI",
-        "Disease Information",
-        "Model Comparison",
-        "Performance Dashboard",
-        "Downloadable Report"
-    ]
-
-    for feature in features:
-
-        st.write(
-            "✓ " + feature
-        )
-
-
-# ============================================================
-# DISEASE DETECTION
-# ============================================================
-
-elif page == "🔍 Disease Detection":
-
-    st.title(
-        "🔍 Potato Disease Detection"
+        "📷 Upload Potato Leaf Image"
     )
 
     uploaded_file = st.file_uploader(
-        "Upload a potato leaf image",
+        "Choose an image",
         type=[
             "jpg",
             "jpeg",
             "png"
-        ]
+        ],
+        key="home_uploader"
     )
 
     if uploaded_file is not None:
@@ -537,42 +548,36 @@ elif page == "🔍 Disease Detection":
             uploaded_file
         ).convert("RGB")
 
-        col1, col2 = st.columns(2)
+        st.session_state.uploaded_image = image
 
-        with col1:
+        st.session_state.file_name = (
+            uploaded_file.name
+        )
 
-            st.subheader(
-                "Uploaded Image"
+        st.subheader(
+            "Uploaded Image"
+        )
+
+        st.image(
+            image,
+            width=500
+        )
+
+        quality_ok, quality_message = (
+            check_image_quality(image)
+        )
+
+        if quality_ok:
+
+            st.success(
+                "✓ " + quality_message
             )
 
-            st.image(
-                image,
-                use_container_width=True
+        else:
+
+            st.warning(
+                "⚠️ " + quality_message
             )
-
-        with col2:
-
-            st.subheader(
-                "Image Quality"
-            )
-
-            quality_ok, quality_message = (
-                check_image_quality(image)
-            )
-
-            if quality_ok:
-
-                st.success(
-                    quality_message
-                )
-
-            else:
-
-                st.warning(
-                    quality_message
-                )
-
-        st.divider()
 
         if st.button(
             "🔍 Analyze Image",
@@ -581,7 +586,7 @@ elif page == "🔍 Disease Detection":
         ):
 
             with st.spinner(
-                "Analyzing image..."
+                "AI is analyzing the image..."
             ):
 
                 (
@@ -592,155 +597,191 @@ elif page == "🔍 Disease Detection":
                     image
                 )
 
-            confidence_percent = (
-                confidence * 100
-            )
-
-            st.subheader(
-                "Prediction Result"
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                st.success(
-                    "Prediction: "
-                    + DISPLAY_NAMES[
-                        predicted_class
-                    ]
-                )
-
-            with col2:
-
-                st.metric(
-                    "Confidence",
-                    f"{confidence_percent:.2f}%"
-                )
-
-            # Confidence threshold
-
-            if confidence < CONFIDENCE_THRESHOLD:
-
-                st.warning(
-                    "⚠️ Low confidence prediction. "
-                    "Please upload a clearer potato leaf image."
-                )
-
-            else:
-
-                st.success(
-                    "✓ Prediction confidence is above "
-                    "the selected threshold."
-                )
-
-            st.divider()
-
-            # Health status
-
-            if predicted_class == (
-                "Potato___healthy"
-            ):
-
-                st.success(
-                    "🌱 The potato leaf appears healthy."
-                )
-
-            else:
-
-                st.warning(
-                    "⚠️ Disease detected: "
-                    + DISPLAY_NAMES[
-                        predicted_class
-                    ]
-                )
-
-            # Probability
-
-            st.subheader(
-                "📊 Class Probabilities"
-            )
-
-            for i, class_name in enumerate(
-                CLASS_NAMES
-            ):
-
-                probability = (
-                    float(
-                        probabilities[i]
-                    ) * 100
-                )
-
-                st.write(
-                    f"{DISPLAY_NAMES[class_name]}: "
-                    f"{probability:.2f}%"
-                )
-
-                st.progress(
-                    int(
-                        min(
-                            probability,
-                            100
-                        )
-                    )
-                )
-
-            st.divider()
-
-            # Disease information
-
-            disease = DISEASE_INFO[
+            st.session_state.predicted_class = (
                 predicted_class
-            ]
-
-            st.subheader(
-                "🩺 Disease Information"
             )
 
-            st.write(
-                disease["description"]
+            st.session_state.confidence = (
+                confidence
             )
 
-            st.write(
-                "**Symptoms:**"
-            )
-
-            for symptom in disease["symptoms"]:
-
-                st.write(
-                    "• " + symptom
-                )
-
-            st.write(
-                "**Recommended Actions:**"
-            )
-
-            for recommendation in (
-                disease["recommendations"]
-            ):
-
-                st.write(
-                    "• " + recommendation
-                )
-
-            st.divider()
-
-            # Report
-
-            report = create_report(
-                uploaded_file.name,
-                predicted_class,
-                confidence,
+            st.session_state.probabilities = (
                 probabilities
             )
 
-            st.download_button(
-                "📄 Download Detection Report",
-                data=report,
-                file_name="potato_disease_report.html",
-                mime="text/html",
-                use_container_width=True
+            st.session_state.prediction_done = True
+
+            st.success(
+                "✓ Analysis completed successfully."
             )
+
+    if st.session_state.prediction_done:
+
+        st.divider()
+
+        predicted_class = (
+            st.session_state.predicted_class
+        )
+
+        confidence = (
+            st.session_state.confidence
+        )
+
+        st.subheader(
+            "🎯 AI Result"
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            st.success(
+                "Prediction: "
+                + DISPLAY_NAMES[
+                    predicted_class
+                ]
+            )
+
+        with col2:
+
+            st.metric(
+                "Confidence",
+                f"{confidence * 100:.2f}%"
+            )
+
+        st.info(
+            "Your image has been analyzed. "
+            "You can now explore all tabs without "
+            "uploading the image again."
+        )
+
+    else:
+
+        st.info(
+            "👆 Upload an image and click "
+            "'Analyze Image' to begin."
+        )
+
+
+# ============================================================
+# ALL OTHER TABS REQUIRE ANALYZED IMAGE
+# ============================================================
+
+elif page != "📁 Batch Analysis" and page != "📊 Model Comparison" and page != "📈 Performance":
+
+    if st.session_state.uploaded_image is None:
+
+        st.warning(
+            "⚠️ Please upload and analyze an image "
+            "from the Home page first."
+        )
+
+        st.stop()
+
+    if not st.session_state.prediction_done:
+
+        st.warning(
+            "⚠️ Please click 'Analyze Image' "
+            "on the Home page first."
+        )
+
+        st.stop()
+
+
+# ============================================================
+# DISEASE DETECTION
+# ============================================================
+
+if page == "🔍 Disease Detection":
+
+    st.title(
+        "🔍 Disease Detection"
+    )
+
+    image = (
+        st.session_state.uploaded_image
+    )
+
+    predicted_class = (
+        st.session_state.predicted_class
+    )
+
+    confidence = (
+        st.session_state.confidence
+    )
+
+    probabilities = (
+        st.session_state.probabilities
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.image(
+            image,
+            caption="Analyzed Potato Leaf",
+            use_container_width=True
+        )
+
+    with col2:
+
+        st.subheader(
+            "Prediction"
+        )
+
+        st.success(
+            DISPLAY_NAMES[
+                predicted_class
+            ]
+        )
+
+        st.metric(
+            "Confidence",
+            f"{confidence * 100:.2f}%"
+        )
+
+    st.divider()
+
+    if confidence < CONFIDENCE_THRESHOLD:
+
+        st.warning(
+            "⚠️ Low-confidence prediction. "
+            "Please consider using a clearer image."
+        )
+
+    else:
+
+        st.success(
+            "✓ Prediction confidence is above "
+            "the selected threshold."
+        )
+
+    st.subheader(
+        "📊 Class Probabilities"
+    )
+
+    for i, class_name in enumerate(
+        CLASS_NAMES
+    ):
+
+        probability = (
+            float(probabilities[i]) * 100
+        )
+
+        st.write(
+            f"{DISPLAY_NAMES[class_name]} — "
+            f"{probability:.2f}%"
+        )
+
+        st.progress(
+            int(
+                min(
+                    probability,
+                    100
+                )
+            )
+        )
 
 
 # ============================================================
@@ -750,21 +791,24 @@ elif page == "🔍 Disease Detection":
 elif page == "📁 Batch Analysis":
 
     st.title(
-        "📁 Batch Image Analysis"
+        "📁 Batch Analysis"
     )
 
     st.write(
-        "Upload multiple potato leaf images."
+        """
+        Analyze multiple potato leaf images at once.
+        """
     )
 
     files = st.file_uploader(
-        "Choose multiple images",
+        "Upload multiple images",
         type=[
             "jpg",
             "jpeg",
             "png"
         ],
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        key="batch_upload"
     )
 
     if files:
@@ -791,16 +835,18 @@ elif page == "📁 Batch Analysis":
 
             results.append({
                 "Image": file.name,
-                "Prediction": DISPLAY_NAMES[
-                    predicted_class
-                ],
-                "Confidence": (
+                "Prediction":
+                    DISPLAY_NAMES[
+                        predicted_class
+                    ],
+                "Confidence":
                     f"{confidence * 100:.2f}%"
-                )
             })
 
             progress.progress(
-                (index + 1) / total
+                int(
+                    ((index + 1) / total) * 100
+                )
             )
 
         st.success(
@@ -823,83 +869,70 @@ elif page == "🔥 Explainable AI":
         "🔥 Explainable AI"
     )
 
+    image = (
+        st.session_state.uploaded_image
+    )
+
+    predicted_class = (
+        st.session_state.predicted_class
+    )
+
+    confidence = (
+        st.session_state.confidence
+    )
+
+    st.image(
+        image,
+        caption="Analyzed Image",
+        width=500
+    )
+
+    st.divider()
+
+    st.subheader(
+        "Model Decision"
+    )
+
+    st.success(
+        DISPLAY_NAMES[
+            predicted_class
+        ]
+    )
+
+    st.metric(
+        "Confidence",
+        f"{confidence * 100:.2f}%"
+    )
+
+    st.divider()
+
+    st.subheader(
+        "What does Explainable AI mean?"
+    )
+
     st.write(
         """
-        This section is reserved for Grad-CAM based
-        visualization of the regions influencing the
-        CNN prediction.
+        Explainable AI is used to understand which
+        regions or features of an image influenced
+        the model's prediction.
         """
     )
 
     st.info(
         """
-        Grad-CAM requires access to the internal
-        convolutional layer of your trained model.
-        We will connect this section to your exact
-        CNN architecture after confirming the model's
-        convolutional layer name.
+        🔥 Grad-CAM can be added here to generate
+        a heatmap showing the important regions
+        used by the CNN.
         """
     )
 
-    uploaded_file = st.file_uploader(
-        "Upload image for explanation",
-        type=[
-            "jpg",
-            "jpeg",
-            "png"
-        ],
-        key="explain_image"
+    st.warning(
+        """
+        The Grad-CAM calculation should be connected
+        to the exact final convolutional layer of your
+        trained Custom CNN.
+        """
     )
-
-    if uploaded_file:
-
-        image = Image.open(
-            uploaded_file
-        ).convert("RGB")
-
-        (
-            predicted_class,
-            confidence,
-            probabilities
-        ) = predict_image(
-            image
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.subheader(
-                "Original Image"
-            )
-
-            st.image(
-                image,
-                use_container_width=True
-            )
-
-        with col2:
-
-            st.subheader(
-                "Prediction"
-            )
-
-            st.success(
-                DISPLAY_NAMES[
-                    predicted_class
-                ]
-            )
-
-            st.metric(
-                "Confidence",
-                f"{confidence * 100:.2f}%"
-            )
-
-        st.warning(
-            "Grad-CAM visualization will be enabled "
-            "after connecting it to the exact convolutional "
-            "layer of your trained model."
-        )
 
 
 # ============================================================
@@ -909,19 +942,28 @@ elif page == "🔥 Explainable AI":
 elif page == "🩺 Disease Information":
 
     st.title(
-        "🩺 Potato Disease Information"
+        "🩺 Disease Information"
     )
 
-    selected = st.selectbox(
-        "Select a class",
-        CLASS_NAMES,
-        format_func=lambda x:
-            DISPLAY_NAMES[x]
+    predicted_class = (
+        st.session_state.predicted_class
+    )
+
+    image = (
+        st.session_state.uploaded_image
     )
 
     disease = DISEASE_INFO[
-        selected
+        predicted_class
     ]
+
+    st.image(
+        image,
+        caption="Analyzed Potato Leaf",
+        width=400
+    )
+
+    st.divider()
 
     st.header(
         disease["name"]
@@ -932,7 +974,7 @@ elif page == "🩺 Disease Information":
     )
 
     st.subheader(
-        "Symptoms"
+        "🔎 Symptoms"
     )
 
     for symptom in disease["symptoms"]:
@@ -942,16 +984,229 @@ elif page == "🩺 Disease Information":
         )
 
     st.subheader(
-        "Recommended Actions"
+        "⚠️ Possible Causes / Favorable Conditions"
     )
 
-    for recommendation in (
-        disease["recommendations"]
-    ):
+    for cause in disease["causes"]:
 
         st.write(
-            "• " + recommendation
+            "• " + cause
         )
+
+    st.subheader(
+        "🛡️ Prevention"
+    )
+
+    for item in disease["prevention"]:
+
+        st.write(
+            "• " + item
+        )
+
+
+# ============================================================
+# DISEASE SOLUTION
+# ============================================================
+
+elif page == "🚑 Disease Solution":
+
+    st.title(
+        "🚑 Disease Solution & Management"
+    )
+
+    predicted_class = (
+        st.session_state.predicted_class
+    )
+
+    confidence = (
+        st.session_state.confidence
+    )
+
+    disease = DISEASE_INFO[
+        predicted_class
+    ]
+
+    st.subheader(
+        "AI Detected Disease"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.success(
+            disease["name"]
+        )
+
+    with col2:
+
+        st.metric(
+            "AI Confidence",
+            f"{confidence * 100:.2f}%"
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # WHY
+    # --------------------------------------------------------
+
+    st.subheader(
+        "❓ Why can this problem occur?"
+    )
+
+    if disease["causes"]:
+
+        for cause in disease["causes"]:
+
+            st.write(
+                "• " + cause
+            )
+
+    else:
+
+        st.success(
+            "No disease was detected."
+        )
+
+    # --------------------------------------------------------
+    # SYMPTOMS
+    # --------------------------------------------------------
+
+    st.subheader(
+        "🔎 What symptoms should you look for?"
+    )
+
+    for symptom in disease["symptoms"]:
+
+        st.write(
+            "• " + symptom
+        )
+
+    # --------------------------------------------------------
+    # IMMEDIATE ACTION
+    # --------------------------------------------------------
+
+    st.subheader(
+        "⚡ What should I do first?"
+    )
+
+    if predicted_class == "Potato___healthy":
+
+        st.success(
+            """
+            The model classified the leaf as healthy.
+            Continue regular monitoring and maintain
+            good crop management practices.
+            """
+        )
+
+    else:
+
+        st.warning(
+            """
+            Early identification and appropriate crop
+            management are important when disease symptoms
+            are detected.
+            """
+        )
+
+        for item in disease["management"]:
+
+            st.write(
+                "• " + item
+            )
+
+    # --------------------------------------------------------
+    # PREVENTION
+    # --------------------------------------------------------
+
+    st.subheader(
+        "🛡️ How can I reduce future risk?"
+    )
+
+    for item in disease["prevention"]:
+
+        st.write(
+            "• " + item
+        )
+
+    # --------------------------------------------------------
+    # FASTEST PRACTICAL RESPONSE
+    # --------------------------------------------------------
+
+    st.subheader(
+        "🚨 Quick Action Guide"
+    )
+
+    if predicted_class == "Potato___healthy":
+
+        st.success(
+            """
+            1. Continue monitoring the crop.
+
+            2. Maintain good field hygiene.
+
+            3. Check new leaves regularly.
+
+            4. Take action if symptoms appear.
+            """
+        )
+
+    elif predicted_class == "Potato___Early_blight":
+
+        st.warning(
+            """
+            1. Check surrounding plants for similar symptoms.
+
+            2. Manage affected plant material where appropriate.
+
+            3. Reduce prolonged moisture on foliage.
+
+            4. Maintain field sanitation.
+
+            5. Follow locally approved disease-management
+               recommendations.
+            """
+        )
+
+    elif predicted_class == "Potato___Late_blight":
+
+        st.error(
+            """
+            1. Inspect nearby plants immediately.
+
+            2. Manage severely affected plant material
+               where appropriate.
+
+            3. Reduce prolonged leaf wetness.
+
+            4. Improve field ventilation.
+
+            5. Follow locally approved disease-management
+               recommendations promptly.
+            """
+        )
+
+    # --------------------------------------------------------
+    # IMPORTANT NOTICE
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.info(
+        """
+        ⚠️ Important:
+
+        This AI system provides image-based decision support.
+        The prediction should not replace professional
+        agricultural diagnosis.
+
+        For chemical control, always follow locally approved
+        product labels and recommendations from qualified
+        agricultural professionals.
+        """
+    )
 
 
 # ============================================================
@@ -966,13 +1221,13 @@ elif page == "📊 Model Comparison":
 
     st.write(
         """
-        Comparison of the architectures evaluated
-        during the research.
+        Comparison between the models evaluated in
+        the research.
         """
     )
 
     st.warning(
-        "Replace the values below with the exact results "
+        "Replace these placeholders with the exact values "
         "from your Kaggle notebook."
     )
 
@@ -983,7 +1238,8 @@ elif page == "📊 Model Comparison":
             "Test Accuracy": "From Kaggle",
             "Test Loss": "From Kaggle",
             "Parameters": "From Kaggle",
-            "Remarks": "Lightweight custom model"
+            "Remarks":
+                "Lightweight custom model"
         },
 
         {
@@ -991,7 +1247,8 @@ elif page == "📊 Model Comparison":
             "Test Accuracy": "From Kaggle",
             "Test Loss": "From Kaggle",
             "Parameters": "From Kaggle",
-            "Remarks": "Deep pretrained model"
+            "Remarks":
+                "Deep pretrained model"
         },
 
         {
@@ -999,7 +1256,8 @@ elif page == "📊 Model Comparison":
             "Test Accuracy": "From Kaggle",
             "Test Loss": "From Kaggle",
             "Parameters": "From Kaggle",
-            "Remarks": "Efficient pretrained model"
+            "Remarks":
+                "Efficient pretrained model"
         }
     ]
 
@@ -1016,11 +1274,12 @@ elif page == "📊 Model Comparison":
 elif page == "📈 Performance":
 
     st.title(
-        "📈 Model Performance Dashboard"
+        "📈 Model Performance"
     )
 
     st.warning(
-        "Insert your actual Kaggle evaluation values here."
+        "Insert the exact evaluation results from "
+        "your Kaggle notebook."
     )
 
     col1, col2, col3, col4 = st.columns(4)
@@ -1060,10 +1319,6 @@ elif page == "📈 Performance":
     )
 
     st.write(
-        "✓ Confusion Matrix"
-    )
-
-    st.write(
         "✓ Accuracy"
     )
 
@@ -1080,7 +1335,11 @@ elif page == "📈 Performance":
     )
 
     st.write(
-        "✓ Training / Validation Curves"
+        "✓ Confusion Matrix"
+    )
+
+    st.write(
+        "✓ Training / Validation Performance"
     )
 
 
@@ -1091,7 +1350,7 @@ elif page == "📈 Performance":
 st.sidebar.divider()
 
 st.sidebar.caption(
-    "Potato Plant Disease Detection System"
+    "🥔 Potato Plant Disease Detection System"
 )
 
 st.sidebar.caption(
