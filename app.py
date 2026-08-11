@@ -1,427 +1,273 @@
 import os
-import json
-import time
-import csv
-import io
-
 import numpy as np
 import streamlit as st
 import tensorflow as tf
-
-from PIL import Image
-
+from PIL import Image, ImageDraw
 
 # ============================================================
-# 1. PAGE CONFIGURATION
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="Potato Plant Disease AI",
+    page_title="Potato Plant Disease Detection",
     page_icon="🥔",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-
 # ============================================================
-# 2. CONFIGURATION
+# MODEL CONFIGURATION
 # ============================================================
 
-MODEL_PATH = "potato_gradcam_model.keras"
-
+MODEL_PATH = "explainable_cnn_model.keras"
 IMG_SIZE = (224, 224)
 
+# ============================================================
+# 38 PLANTVILLAGE CLASS NAMES
+# ============================================================
+
 CLASS_NAMES = [
+    "Apple___Apple_scab",
+    "Apple___Black_rot",
+    "Apple___Cedar_apple_rust",
+    "Apple___healthy",
+    "Blueberry___healthy",
+    "Cherry_(including_sour)___Powdery_mildew",
+    "Cherry_(including_sour)___healthy",
+    "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot",
+    "Corn_(maize)___Common_rust_",
+    "Corn_(maize)___Northern_Leaf_Blight",
+    "Corn_(maize)___healthy",
+    "Grape___Black_rot",
+    "Grape___Esca_(Black_Measles)",
+    "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)",
+    "Grape___healthy",
+    "Orange___Haunglongbing_(Citrus_greening)",
+    "Peach___Bacterial_spot",
+    "Peach___healthy",
+    "Pepper,_bell___Bacterial_spot",
+    "Pepper,_bell___healthy",
     "Potato___Early_blight",
     "Potato___Late_blight",
-    "Potato___healthy"
+    "Potato___healthy",
+    "Raspberry___healthy",
+    "Soybean___healthy",
+    "Squash___Powdery_mildew",
+    "Strawberry___Leaf_scorch",
+    "Strawberry___healthy",
+    "Tomato___Bacterial_spot",
+    "Tomato___Early_blight",
+    "Tomato___Late_blight",
+    "Tomato___Leaf_Mold",
+    "Tomato___Septoria_leaf_spot",
+    "Tomato___Spider_mites Two-spotted_spider_mite",
+    "Tomato___Target_Spot",
+    "Tomato___Tomato_Yellow_Leaf_Curl_Virus",
+    "Tomato___Tomato_mosaic_virus",
+    "Tomato___healthy"
 ]
 
-DISPLAY_NAMES = {
-    "Potato___Early_blight": "Early Blight",
-    "Potato___Late_blight": "Late Blight",
-    "Potato___healthy": "Healthy"
-}
-
-
 # ============================================================
-# 3. DISEASE INFORMATION
+# DISEASE INFORMATION
 # ============================================================
 
 DISEASE_INFO = {
 
     "Potato___Early_blight": {
-
-        "name": "Early Blight",
-
-        "description":
-            "A common potato leaf disease that can reduce "
-            "plant growth and yield.",
-
+        "name": "Potato Early Blight",
+        "cause": "Usually associated with the fungus Alternaria solani.",
         "symptoms": [
-            "Brown or dark spots on leaves",
-            "Circular or target-like patterns may appear",
-            "Older leaves are often affected first",
-            "Severely affected leaves can yellow and die"
+            "Dark brown to black spots on older leaves",
+            "Spots may develop concentric ring patterns",
+            "Leaves may gradually yellow and dry"
         ],
-
-        "causes": [
-            "Fungal infection",
-            "Warm and humid conditions",
-            "Poor air circulation",
-            "Infected plant debris"
+        "management": [
+            "Remove severely infected leaves",
+            "Maintain proper field sanitation",
+            "Avoid prolonged leaf wetness",
+            "Use recommended fungicides according to local agricultural guidance",
+            "Maintain adequate plant nutrition"
         ],
-
-        "actions": [
-            "Remove severely affected leaves when practical",
-            "Improve plant spacing and air circulation",
-            "Avoid unnecessary overhead irrigation",
-            "Remove infected plant debris",
-            "Use locally recommended fungicide practices when appropriate"
-        ],
-
         "prevention": [
             "Use healthy planting material",
-            "Maintain field sanitation",
-            "Avoid prolonged leaf wetness",
-            "Monitor plants regularly"
+            "Avoid excessive irrigation",
+            "Maintain good spacing and airflow",
+            "Remove infected plant debris"
         ]
     },
-
 
     "Potato___Late_blight": {
-
-        "name": "Late Blight",
-
-        "description":
-            "A potentially fast-spreading potato disease, "
-            "especially under cool and humid conditions.",
-
+        "name": "Potato Late Blight",
+        "cause": "Caused by the oomycete pathogen Phytophthora infestans.",
         "symptoms": [
-            "Dark brown or black irregular lesions",
-            "Water-soaked appearance may occur",
-            "Lesions can expand quickly",
-            "Leaves can collapse when infection becomes severe"
+            "Irregular dark brown or black lesions",
+            "Rapid leaf deterioration",
+            "White growth may appear under humid conditions",
+            "Disease can spread rapidly during cool and wet weather"
         ],
-
-        "causes": [
-            "Pathogen infection",
-            "Cool and humid weather",
-            "Extended leaf wetness",
-            "Poor field sanitation"
-        ],
-
-        "actions": [
-            "Remove severely infected plant material where practical",
+        "management": [
+            "Remove heavily infected plant material",
             "Improve air circulation",
-            "Avoid prolonged leaf wetness",
-            "Monitor nearby plants carefully",
-            "Follow locally recommended disease-management guidance"
+            "Avoid unnecessary overhead irrigation",
+            "Use locally recommended fungicide programs",
+            "Monitor nearby plants frequently"
         ],
-
         "prevention": [
-            "Use disease-free planting material",
-            "Inspect plants frequently",
-            "Maintain field sanitation",
-            "Avoid excessive irrigation",
-            "Act early when symptoms appear"
+            "Use disease-free seed potatoes",
+            "Avoid excessive moisture",
+            "Provide adequate spacing",
+            "Remove infected crop residues"
         ]
     },
 
-
     "Potato___healthy": {
-
-        "name": "Healthy",
-
-        "description":
-            "The model classified the uploaded potato leaf as healthy.",
-
+        "name": "Healthy Potato Plant",
+        "cause": "No major disease pattern was detected by the model.",
         "symptoms": [
-            "No strong disease pattern detected by the model",
-            "Leaf appearance is generally consistent with a healthy class"
+            "Healthy green foliage",
+            "No strong disease pattern detected"
         ],
-
-        "causes": [
-            "No disease pattern was detected by the model"
-        ],
-
-        "actions": [
+        "management": [
             "Continue regular monitoring",
-            "Maintain proper irrigation",
-            "Maintain balanced plant nutrition",
+            "Maintain balanced irrigation",
+            "Maintain proper nutrition",
             "Keep the field clean"
         ],
-
         "prevention": [
             "Use healthy planting material",
-            "Monitor leaves regularly",
-            "Maintain appropriate plant spacing",
-            "Control pests and weeds",
-            "Maintain field hygiene"
+            "Maintain good field sanitation",
+            "Regularly inspect leaves"
         ]
     }
 }
 
+# ============================================================
+# GENERIC INFORMATION FOR OTHER PLANT DISEASES
+# ============================================================
+
+def get_disease_info(class_name):
+
+    if class_name in DISEASE_INFO:
+        return DISEASE_INFO[class_name]
+
+    display_name = class_name.split("___")[-1].replace("_", " ")
+
+    return {
+        "name": display_name,
+        "cause": "This class was detected from the PlantVillage disease classification dataset.",
+        "symptoms": [
+            "Visible symptoms may vary depending on disease severity.",
+            "The model prediction should be confirmed with field observation."
+        ],
+        "management": [
+            "Remove severely affected plant material where appropriate.",
+            "Maintain proper irrigation and field sanitation.",
+            "Improve airflow around plants.",
+            "Consult an agricultural expert before applying treatment."
+        ],
+        "prevention": [
+            "Use healthy planting material.",
+            "Monitor plants regularly.",
+            "Maintain good sanitation.",
+            "Avoid unnecessary moisture on leaves."
+        ]
+    }
+
 
 # ============================================================
-# 4. LOAD MODEL
+# MODEL LOADING
 # ============================================================
 
 @st.cache_resource
 def load_model():
 
     if not os.path.exists(MODEL_PATH):
-
         return None, (
             f"Model file not found: {MODEL_PATH}"
         )
 
     try:
-
-        loaded_model = tf.keras.models.load_model(
+        model = tf.keras.models.load_model(
             MODEL_PATH,
             compile=False
         )
 
-        return loaded_model, None
+        return model, None
 
     except Exception as e:
-
         return None, str(e)
 
 
 model, model_error = load_model()
 
-
 # ============================================================
-# 5. SESSION STATE
+# FIND LAST CONVOLUTIONAL LAYER
 # ============================================================
 
-defaults = {
-    "image": None,
-    "prediction": None,
-    "probabilities": None,
-    "confidence": None,
-    "filename": None,
-    "gradcam": None,
-    "gradcam_layer": None
-}
+def find_last_conv_layer(model):
 
-for key, value in defaults.items():
+    for layer in reversed(model.layers):
 
-    if key not in st.session_state:
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            return layer
 
-        st.session_state[key] = value
+    return None
+
+
+last_conv_layer = None
+
+if model is not None:
+    last_conv_layer = find_last_conv_layer(model)
 
 
 # ============================================================
-# 6. PREPROCESSING
+# IMAGE PREPROCESSING
 # ============================================================
 
 def preprocess_image(image):
 
     image = image.convert("RGB")
 
-    image = image.resize(
+    resized = image.resize(
         IMG_SIZE
     )
 
     array = np.asarray(
-        image,
+        resized,
         dtype=np.float32
     )
 
     array = array / 255.0
 
-    return np.expand_dims(
+    array = np.expand_dims(
         array,
         axis=0
     )
 
-
-# ============================================================
-# 7. PREDICTION
-# ============================================================
-
-def predict_image(image):
-
-    if model is None:
-
-        raise RuntimeError(
-            model_error or "Model unavailable."
-        )
-
-    processed = preprocess_image(
-        image
-    )
-
-    output = model.predict(
-        processed,
-        verbose=0
-    )
-
-    output = np.asarray(
-        output
-    )
-
-    if output.ndim == 2:
-
-        probabilities = output[0]
-
-    else:
-
-        probabilities = output.reshape(-1)
-
-
-    # Safety for logits
-    if (
-        np.min(probabilities) < 0
-        or np.max(probabilities) > 1
-        or not np.isclose(
-            np.sum(probabilities),
-            1.0,
-            atol=1e-3
-        )
-    ):
-
-        shifted = (
-            probabilities
-            - np.max(probabilities)
-        )
-
-        exp_values = np.exp(
-            shifted
-        )
-
-        probabilities = (
-            exp_values
-            / np.sum(exp_values)
-        )
-
-
-    if len(probabilities) != len(CLASS_NAMES):
-
-        raise ValueError(
-            f"Model returned "
-            f"{len(probabilities)} outputs, "
-            f"but this application expects "
-            f"{len(CLASS_NAMES)} classes."
-        )
-
-
-    index = int(
-        np.argmax(probabilities)
-    )
-
-    predicted_class = CLASS_NAMES[
-        index
-    ]
-
-    confidence = float(
-        probabilities[index]
-    )
-
-    return (
-        predicted_class,
-        confidence,
-        probabilities
-    )
+    return array
 
 
 # ============================================================
-# 8. CONFIDENCE LEVEL
+# GRAD-CAM
 # ============================================================
 
-def confidence_level(confidence):
-
-    if confidence >= 0.85:
-
-        return "High", "🟢"
-
-    elif confidence >= 0.60:
-
-        return "Moderate", "🟡"
-
-    else:
-
-        return "Low", "🔴"
-
-
-# ============================================================
-# 9. TOP PREDICTIONS
-# ============================================================
-
-def get_top_predictions(
-    probabilities,
-    number=3
+def generate_gradcam(
+    image_array,
+    model,
+    conv_layer
 ):
 
-    indices = np.argsort(
-        probabilities
-    )[::-1][:number]
-
-    results = []
-
-    for index in indices:
-
-        results.append(
-            (
-                CLASS_NAMES[
-                    int(index)
-                ],
-                float(
-                    probabilities[
-                        int(index)
-                    ]
-                )
-            )
-        )
-
-    return results
-
-
-# ============================================================
-# 10. FIND LAST CONVOLUTIONAL LAYER
-# ============================================================
-
-def find_last_conv_layer():
-
     if model is None:
-
-        return None
-
-    for layer in reversed(
-        model.layers
-    ):
-
-        if isinstance(
-            layer,
-            tf.keras.layers.Conv2D
-        ):
-
-            return layer
-
-    return None
-
-
-# ============================================================
-# 11. BUILD GRAD-CAM MODEL
-# ============================================================
-
-@st.cache_resource
-def get_gradcam_model():
-
-    if model is None:
-
-        return None, None
-
-    conv_layer = find_last_conv_layer()
+        return None, "Model is not loaded."
 
     if conv_layer is None:
-
-        return None, None
+        return None, "No Conv2D layer was found."
 
     try:
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # Build a gradient model from the actual loaded model.
+        # ----------------------------------------------------
 
         grad_model = tf.keras.models.Model(
             inputs=model.inputs,
@@ -431,619 +277,216 @@ def get_gradcam_model():
             ]
         )
 
-        return (
-            grad_model,
-            conv_layer.name
-        )
+        with tf.GradientTape() as tape:
 
-    except Exception:
-
-        return None, None
-
-
-# ============================================================
-# 12. GENERATE GRAD-CAM
-# ============================================================
-
-def make_gradcam(
-    image,
-    class_index
-):
-
-    grad_model, layer_name = (
-        get_gradcam_model()
-    )
-
-    if grad_model is None:
-
-        raise ValueError(
-            "The convolutional layer could not "
-            "be connected to the model output. "
-            "Use the Functional API model saved "
-            "from the Kaggle Grad-CAM notebook."
-        )
-
-
-    input_tensor = preprocess_image(
-        image
-    )
-
-    with tf.GradientTape() as tape:
-
-        conv_output, predictions = (
-            grad_model(
-                input_tensor
+            conv_output, predictions = grad_model(
+                image_array,
+                training=False
             )
+
+            predicted_index = tf.argmax(
+                predictions[0]
+            )
+
+            class_score = predictions[
+                :, predicted_index
+            ]
+
+        gradients = tape.gradient(
+            class_score,
+            conv_output
         )
 
-        score = predictions[
-            :,
-            class_index
-        ]
+        if gradients is None:
+            return None, "Gradients could not be calculated."
 
-
-    gradients = tape.gradient(
-        score,
-        conv_output
-    )
-
-    if gradients is None:
-
-        raise ValueError(
-            "Gradients were not produced."
+        # Global average pooling of gradients
+        pooled_gradients = tf.reduce_mean(
+            gradients,
+            axis=(0, 1, 2)
         )
 
+        conv_output = conv_output[0]
 
-    weights = tf.reduce_mean(
-        gradients,
-        axis=(1, 2)
+        heatmap = tf.reduce_sum(
+            conv_output *
+            pooled_gradients,
+            axis=-1
+        )
+
+        # ReLU
+        heatmap = tf.maximum(
+            heatmap,
+            0
+        )
+
+        max_value = tf.reduce_max(
+            heatmap
+        )
+
+        if float(max_value.numpy()) <= 0:
+            return None, "Grad-CAM heatmap contains no positive activation."
+
+        heatmap = heatmap / max_value
+
+        return heatmap.numpy(), None
+
+    except Exception as e:
+
+        return None, str(e)
+
+
+# ============================================================
+# SIMPLE HEATMAP COLORING
+# ============================================================
+
+def create_heatmap_image(heatmap):
+
+    heatmap = np.clip(
+        heatmap,
+        0,
+        1
     )
 
-    conv_output = conv_output[0]
+    h = heatmap.shape[0]
+    w = heatmap.shape[1]
 
-    weights = weights[0]
+    # Simple blue -> cyan -> yellow -> red style mapping
+    r = np.clip(
+        2.0 * heatmap - 0.5,
+        0,
+        1
+    )
 
+    g = np.clip(
+        2.0 * (1.0 - np.abs(heatmap - 0.5) * 2),
+        0,
+        1
+    )
 
-    heatmap = tf.reduce_sum(
-        conv_output * weights,
+    b = np.clip(
+        1.5 - 2.0 * heatmap,
+        0,
+        1
+    )
+
+    rgb = np.stack(
+        [r, g, b],
         axis=-1
     )
 
-    heatmap = tf.maximum(
-        heatmap,
-        0
+    rgb = np.uint8(
+        rgb * 255
     )
 
-    maximum = tf.reduce_max(
-        heatmap
-    )
-
-    if float(maximum) > 0:
-
-        heatmap = (
-            heatmap / maximum
-        )
-
-
-    return (
-        heatmap.numpy(),
-        layer_name
+    return Image.fromarray(
+        rgb
+    ).resize(
+        (w, h)
     )
 
 
 # ============================================================
-# 13. CREATE HEATMAP
+# GRAD-CAM OVERLAY
 # ============================================================
 
-def create_heatmap_image(
-    heatmap
+def create_gradcam_overlay(
+    original_image,
+    heatmap,
+    alpha=0.45
 ):
 
-    heat = Image.fromarray(
-        np.uint8(
-            np.clip(
-                heatmap * 255,
-                0,
-                255
-            )
-        )
-    )
-
-    heat = heat.resize(
+    original = original_image.convert(
+        "RGB"
+    ).resize(
         IMG_SIZE
     )
 
-    array = (
-        np.asarray(
-            heat,
-            dtype=np.float32
-        )
-        / 255.0
+    heatmap_img = create_heatmap_image(
+        heatmap
     )
 
-
-    red = np.clip(
-        2 * array,
-        0,
-        1
+    heatmap_img = heatmap_img.resize(
+        original.size
     )
 
-    green = np.clip(
-        2 * (
-            1 - np.abs(
-                array - 0.5
-            ) * 2
-        ),
-        0,
-        1
-    )
-
-    blue = np.clip(
-        2 * (1 - array),
-        0,
-        1
-    )
-
-
-    rgb = np.stack(
-        [
-            red,
-            green,
-            blue
-        ],
-        axis=-1
-    )
-
-
-    return Image.fromarray(
-        np.uint8(
-            rgb * 255
-        )
-    )
-
-
-# ============================================================
-# 14. GRAD-CAM OVERLAY
-# ============================================================
-
-def create_overlay(
-    image,
-    heatmap
-):
-
-    original = (
-        image
-        .convert("RGB")
-        .resize(IMG_SIZE)
-    )
-
-    heatmap_image = (
-        create_heatmap_image(
-            heatmap
-        )
-    )
-
-    return Image.blend(
+    overlay = Image.blend(
         original,
-        heatmap_image,
-        0.45
+        heatmap_img,
+        alpha
+    )
+
+    return overlay
+
+
+# ============================================================
+# DISPLAY NAME
+# ============================================================
+
+def clean_class_name(name):
+
+    return name.split(
+        "___"
+    )[-1].replace(
+        "_",
+        " "
+    ).replace(
+        "  ",
+        " "
     )
 
 
 # ============================================================
-# 15. EXPERIMENTAL ATTENTION ESTIMATION
+# MODEL PERFORMANCE INFORMATION
 # ============================================================
 
-def estimate_attention(
-    heatmap
-):
+MODEL_COMPARISON = {
+    "Custom CNN": {
+        "Architecture": "Lightweight Custom CNN",
+        "Input": "224 × 224 × 3",
+        "Purpose": "Lightweight disease classification"
+    },
 
-    if heatmap is None:
+    "ResNet50": {
+        "Architecture": "Transfer Learning",
+        "Input": "224 × 224 × 3",
+        "Purpose": "Deep residual feature extraction"
+    },
 
-        return None, None
-
-    threshold = 0.55
-
-    mask = (
-        heatmap >= threshold
-    )
-
-    percentage = (
-        float(
-            np.mean(mask)
-        )
-        * 100
-    )
-
-
-    if percentage < 10:
-
-        level = "Low"
-
-    elif percentage < 30:
-
-        level = "Moderate"
-
-    else:
-
-        level = "High"
-
-
-    return (
-        percentage,
-        level
-    )
+    "MobileNetV2": {
+        "Architecture": "Transfer Learning",
+        "Input": "224 × 224 × 3",
+        "Purpose": "Lightweight mobile-oriented classification"
+    }
+}
 
 
 # ============================================================
-# 16. DISEASE INFO
+# HEADER
 # ============================================================
 
-def get_info(
-    predicted_class
-):
+st.title(
+    "🥔 Potato Plant Disease Detection System"
+)
 
-    return DISEASE_INFO[
-        predicted_class
-    ]
+st.markdown(
+    """
+### AI-Based Plant Disease Analysis
 
+Upload **one potato leaf image** from the Home page.
+The same uploaded image is then used for:
 
-# ============================================================
-# 17. TEST METRICS
-# ============================================================
-
-def calculate_metrics(
-    y_true,
-    y_pred,
-    n_classes
-):
-
-    y_true = np.asarray(
-        y_true,
-        dtype=np.int64
-    )
-
-    y_pred = np.asarray(
-        y_pred,
-        dtype=np.int64
-    )
-
-
-    matrix = np.zeros(
-        (
-            n_classes,
-            n_classes
-        ),
-        dtype=np.int64
-    )
-
-
-    for actual, predicted in zip(
-        y_true,
-        y_pred
-    ):
-
-        if (
-            0 <= actual < n_classes
-            and
-            0 <= predicted < n_classes
-        ):
-
-            matrix[
-                actual,
-                predicted
-            ] += 1
-
-
-    if len(y_true) == 0:
-
-        return (
-            0,
-            0,
-            0,
-            0,
-            matrix
-        )
-
-
-    accuracy = float(
-        np.mean(
-            y_true == y_pred
-        )
-    )
-
-
-    precisions = []
-    recalls = []
-    f1_scores = []
-
-
-    for i in range(
-        n_classes
-    ):
-
-        tp = matrix[
-            i,
-            i
-        ]
-
-        fp = (
-            np.sum(
-                matrix[:, i]
-            )
-            - tp
-        )
-
-        fn = (
-            np.sum(
-                matrix[i, :]
-            )
-            - tp
-        )
-
-
-        precision = (
-            tp / (tp + fp)
-            if tp + fp
-            else 0
-        )
-
-        recall = (
-            tp / (tp + fn)
-            if tp + fn
-            else 0
-        )
-
-
-        if (
-            precision
-            + recall
-        ):
-
-            f1 = (
-                2
-                * precision
-                * recall
-                / (
-                    precision
-                    + recall
-                )
-            )
-
-        else:
-
-            f1 = 0
-
-
-        precisions.append(
-            precision
-        )
-
-        recalls.append(
-            recall
-        )
-
-        f1_scores.append(
-            f1
-        )
-
-
-    return (
-        accuracy,
-        float(
-            np.mean(
-                precisions
-            )
-        ),
-        float(
-            np.mean(
-                recalls
-            )
-        ),
-        float(
-            np.mean(
-                f1_scores
-            )
-        ),
-        matrix
-    )
-
+- Disease Detection
+- Explainable AI / Grad-CAM
+- Disease Information
+- Cause & Symptoms
+- Management Recommendations
+- Model Analysis
+"""
+)
 
 # ============================================================
-# 18. READ TRAINING HISTORY
-# ============================================================
-
-def read_history():
-
-    path = (
-        "training_history.json"
-    )
-
-    if not os.path.exists(
-        path
-    ):
-
-        return None
-
-
-    try:
-
-        with open(
-            path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            return json.load(
-                file
-            )
-
-    except Exception:
-
-        return None
-
-
-# ============================================================
-# 19. READ MODEL COMPARISON
-# ============================================================
-
-def read_model_comparison():
-
-    path = (
-        "model_comparison.json"
-    )
-
-    if not os.path.exists(
-        path
-    ):
-
-        return None
-
-
-    try:
-
-        with open(
-            path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            return json.load(
-                file
-            )
-
-    except Exception:
-
-        return None
-
-
-# ============================================================
-# 20. DOWNLOAD REPORT
-# ============================================================
-
-def create_report():
-
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    confidence = (
-        st.session_state.confidence
-    )
-
-    filename = (
-        st.session_state.filename
-        or "Uploaded image"
-    )
-
-    info = get_info(
-        predicted_class
-    )
-
-    level, icon = (
-        confidence_level(
-            confidence
-        )
-    )
-
-
-    report = []
-
-    report.append(
-        "POTATO PLANT DISEASE AI ANALYSIS REPORT"
-    )
-
-    report.append(
-        "=" * 50
-    )
-
-    report.append(
-        f"Image: {filename}"
-    )
-
-    report.append(
-        f"Prediction: {info['name']}"
-    )
-
-    report.append(
-        f"Confidence: {confidence * 100:.2f}%"
-    )
-
-    report.append(
-        f"Reliability: {icon} {level}"
-    )
-
-
-    report.append(
-        "\nDESCRIPTION"
-    )
-
-    report.append(
-        info["description"]
-    )
-
-
-    report.append(
-        "\nSYMPTOMS"
-    )
-
-    for item in info["symptoms"]:
-
-        report.append(
-            "- " + item
-        )
-
-
-    report.append(
-        "\nPOSSIBLE CAUSES"
-    )
-
-    for item in info["causes"]:
-
-        report.append(
-            "- " + item
-        )
-
-
-    report.append(
-        "\nRECOMMENDED ACTIONS"
-    )
-
-    for item in info["actions"]:
-
-        report.append(
-            "- " + item
-        )
-
-
-    report.append(
-        "\nPREVENTION"
-    )
-
-    for item in info["prevention"]:
-
-        report.append(
-            "- " + item
-        )
-
-
-    report.append(
-        "\nNOTE"
-    )
-
-    report.append(
-        "This system provides AI-based preliminary "
-        "classification and decision-support information."
-    )
-
-
-    return "\n".join(
-        report
-    )
-
-
-# ============================================================
-# 21. MODEL ERROR CHECK
+# MODEL STATUS
 # ============================================================
 
 if model is None:
@@ -1053,342 +496,258 @@ if model is None:
     )
 
     st.code(
-        model_error
-        or
-        "Unknown model error"
+        MODEL_PATH
     )
 
     st.info(
-        """
-        Make sure `potato_gradcam_model.keras`
-        is in the same GitHub folder as app.py.
-        """
+        "Make sure explainable_cnn_model.keras "
+        "is in the same GitHub folder as app.py."
+    )
+
+    st.stop()
+
+else:
+
+    st.success(
+        "✅ Explainable CNN model loaded successfully."
+    )
+
+    if last_conv_layer is not None:
+
+        st.caption(
+            f"Grad-CAM layer: {last_conv_layer.name}"
+        )
+
+
+# ============================================================
+# HOME PAGE UPLOAD
+# ============================================================
+
+st.sidebar.title(
+    "Navigation"
+)
+
+page = st.sidebar.radio(
+    "Go to",
+    [
+        "Home",
+        "Disease Detection",
+        "Explainable AI",
+        "Disease Information",
+        "Cause & Solution",
+        "Batch Analysis",
+        "Model Comparison",
+        "Performance"
+    ]
+)
+
+st.sidebar.markdown("---")
+
+st.sidebar.info(
+    "Upload the image once from Home. "
+    "The same image is reused throughout the app."
+)
+
+
+# ============================================================
+# HOME
+# ============================================================
+
+if page == "Home":
+
+    st.header(
+        "🏠 Upload Potato Leaf"
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload a potato leaf image",
+        type=[
+            "jpg",
+            "jpeg",
+            "png"
+        ],
+        key="main_upload"
+    )
+
+    if uploaded_file is not None:
+
+        image = Image.open(
+            uploaded_file
+        ).convert("RGB")
+
+        st.session_state[
+            "uploaded_image"
+        ] = image
+
+        st.session_state[
+            "uploaded_filename"
+        ] = uploaded_file.name
+
+        st.success(
+            "Image uploaded successfully!"
+        )
+
+        st.image(
+            image,
+            caption="Uploaded Potato Leaf",
+            use_container_width=True
+        )
+
+        if st.button(
+            "🔍 Analyze Leaf",
+            type="primary"
+        ):
+
+            with st.spinner(
+                "Analyzing the leaf..."
+            ):
+
+                processed = preprocess_image(
+                    image
+                )
+
+                predictions = model.predict(
+                    processed,
+                    verbose=0
+                )[0]
+
+                predicted_index = int(
+                    np.argmax(predictions)
+                )
+
+                predicted_class = CLASS_NAMES[
+                    predicted_index
+                ]
+
+                confidence = float(
+                    predictions[
+                        predicted_index
+                    ]
+                )
+
+                st.session_state[
+                    "predictions"
+                ] = predictions
+
+                st.session_state[
+                    "predicted_class"
+                ] = predicted_class
+
+                st.session_state[
+                    "confidence"
+                ] = confidence
+
+            st.success(
+                "Analysis completed!"
+            )
+
+            st.metric(
+                "Prediction",
+                clean_class_name(
+                    predicted_class
+                )
+            )
+
+            st.metric(
+                "Confidence",
+                f"{confidence * 100:.2f}%"
+            )
+
+            if predicted_class == "Potato___healthy":
+
+                st.success(
+                    "🌱 The model detected a healthy potato leaf."
+                )
+
+            elif predicted_class.startswith(
+                "Potato___"
+            ):
+
+                st.warning(
+                    "⚠️ A potato disease pattern was detected."
+                )
+
+            else:
+
+                st.info(
+                    "The model predicted a non-potato PlantVillage class. "
+                    "Please upload a potato leaf image."
+                )
+
+    else:
+
+        st.info(
+            "👆 Upload a potato leaf image to start the analysis."
+        )
+
+
+# ============================================================
+# CHECK WHETHER IMAGE EXISTS
+# ============================================================
+
+has_image = (
+    "uploaded_image" in st.session_state
+)
+
+if page != "Home" and not has_image:
+
+    st.warning(
+        "⚠️ Please upload and analyze an image from the Home page first."
     )
 
     st.stop()
 
 
 # ============================================================
-# 22. SIDEBAR
+# GET STORED IMAGE / PREDICTION
 # ============================================================
 
-st.sidebar.title(
-    "🥔 Navigation"
-)
+if has_image:
 
-page = st.sidebar.radio(
-    "Select Section",
-    [
-        "🏠 Home",
-        "🔍 Disease Detection",
-        "🧠 Explainable AI",
-        "📚 Disease Information",
-        "🩺 Causes & Solutions",
-        "🩺 Severity / Attention",
-        "📄 Analysis Report",
-        "📦 Batch Analysis",
-        "📊 Performance",
-        "⚖️ Model Comparison",
-        "⚡ Model Efficiency"
+    image = st.session_state[
+        "uploaded_image"
     ]
-)
 
-st.sidebar.divider()
-
-st.sidebar.caption(
-    "Custom CNN • Explainable AI • Grad-CAM"
-)
-
-
-# ============================================================
-# 23. HOME
-# ============================================================
-
-if page == "🏠 Home":
-
-    st.title(
-        "🥔 Potato Plant Disease Detection System"
+    processed_image = preprocess_image(
+        image
     )
 
-    st.markdown(
-        """
-        ### Advanced AI-powered potato leaf analysis
+    # Recalculate prediction every page
+    predictions = model.predict(
+        processed_image,
+        verbose=0
+    )[0]
 
-        Upload **one image only**. The same image will be
-        automatically used by the other analysis sections.
+    predicted_index = int(
+        np.argmax(predictions)
+    )
 
-        **Detection → Grad-CAM → Disease Information →
-        Causes & Solutions → Attention Analysis → Report**
-        """
+    predicted_class = CLASS_NAMES[
+        predicted_index
+    ]
+
+    confidence = float(
+        predictions[
+            predicted_index
+        ]
     )
 
 
-    uploaded_file = st.file_uploader(
-        "📷 Upload Potato Leaf",
-        type=[
-            "jpg",
-            "jpeg",
-            "png"
-        ],
-        key="main_uploader"
-    )
-
-
-    if uploaded_file:
-
-        try:
-
-            image = Image.open(
-                uploaded_file
-            ).convert("RGB")
-
-
-            with st.spinner(
-                "Analyzing leaf..."
-            ):
-
-                (
-                    predicted_class,
-                    confidence,
-                    probabilities
-                ) = predict_image(
-                    image
-                )
-
-
-            st.session_state.image = (
-                image
-            )
-
-            st.session_state.prediction = (
-                predicted_class
-            )
-
-            st.session_state.confidence = (
-                confidence
-            )
-
-            st.session_state.probabilities = (
-                probabilities
-            )
-
-            st.session_state.filename = (
-                uploaded_file.name
-            )
-
-            st.session_state.gradcam = None
-
-            st.session_state.gradcam_layer = None
-
-
-            level, icon = (
-                confidence_level(
-                    confidence
-                )
-            )
-
-
-            c1, c2, c3 = st.columns(
-                3
-            )
-
-
-            with c1:
-
-                st.image(
-                    image,
-                    caption=uploaded_file.name,
-                    use_container_width=True
-                )
-
-
-            with c2:
-
-                st.subheader(
-                    "🎯 Prediction"
-                )
-
-                st.success(
-                    DISPLAY_NAMES[
-                        predicted_class
-                    ]
-                )
-
-                st.metric(
-                    "Confidence",
-                    f"{confidence * 100:.2f}%"
-                )
-
-
-            with c3:
-
-                st.subheader(
-                    "Reliability"
-                )
-
-                st.metric(
-                    "Level",
-                    f"{icon} {level}"
-                )
-
-
-                if (
-                    predicted_class
-                    ==
-                    "Potato___healthy"
-                ):
-
-                    st.success(
-                        "✅ Healthy pattern detected."
-                    )
-
-                else:
-
-                    st.warning(
-                        "⚠️ Disease pattern detected."
-                    )
-
-
-            st.divider()
-
-
-            st.subheader(
-                "🔝 Top-3 Predictions"
-            )
-
-
-            for rank, (
-                class_name,
-                value
-            ) in enumerate(
-                get_top_predictions(
-                    probabilities,
-                    3
-                ),
-                start=1
-            ):
-
-                st.write(
-                    f"**{rank}. "
-                    f"{DISPLAY_NAMES[class_name]}** "
-                    f"— {value * 100:.2f}%"
-                )
-
-                st.progress(
-                    min(
-                        max(
-                            value,
-                            0
-                        ),
-                        1
-                    )
-                )
-
-
-            st.success(
-                "✓ Analysis completed."
-            )
-
-
-        except Exception as e:
-
-            st.error(
-                "❌ Image analysis failed."
-            )
-
-            st.code(
-                str(e)
-            )
-
-
-    elif st.session_state.image:
-
-        st.info(
-            "An image is already loaded."
-        )
-
-        st.image(
-            st.session_state.image,
-            caption=(
-                st.session_state.filename
-                or "Loaded image"
-            )
-        )
-
-
-    else:
-
-        st.info(
-            "👆 Upload a potato leaf image."
-        )
-
-
 # ============================================================
-# 24. CHECK SINGLE IMAGE
+# DISEASE DETECTION
 # ============================================================
 
-elif page in [
-    "🔍 Disease Detection",
-    "🧠 Explainable AI",
-    "📚 Disease Information",
-    "🩺 Causes & Solutions",
-    "🩺 Severity / Attention",
-    "📄 Analysis Report"
-]:
+if page == "Disease Detection":
 
-    if st.session_state.image is None:
-
-        st.warning(
-            """
-            ⚠️ No image loaded.
-
-            Go to Home and upload one potato leaf image first.
-            """
-        )
-
-        st.stop()
-
-
-# ============================================================
-# 25. DISEASE DETECTION
-# ============================================================
-
-if page == "🔍 Disease Detection":
-
-    st.title(
+    st.header(
         "🔍 Disease Detection"
     )
 
-    image = (
-        st.session_state.image
-    )
-
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    confidence = (
-        st.session_state.confidence
-    )
-
-    probabilities = (
-        st.session_state.probabilities
-    )
-
-
-    level, icon = (
-        confidence_level(
-            confidence
-        )
-    )
-
-
-    c1, c2 = st.columns(
+    col1, col2 = st.columns(
         2
     )
 
-
-    with c1:
+    with col1:
 
         st.image(
             image,
@@ -1396,17 +755,16 @@ if page == "🔍 Disease Detection":
             use_container_width=True
         )
 
-
-    with c2:
+    with col2:
 
         st.subheader(
-            "Prediction"
+            "Prediction Result"
         )
 
         st.success(
-            DISPLAY_NAMES[
+            clean_class_name(
                 predicted_class
-            ]
+            )
         )
 
         st.metric(
@@ -1414,1546 +772,457 @@ if page == "🔍 Disease Detection":
             f"{confidence * 100:.2f}%"
         )
 
-        st.metric(
-            "Reliability",
-            f"{icon} {level}"
-        )
-
-
-        if confidence < 0.60:
-
-            st.warning(
-                "⚠️ Low confidence. "
-                "Try a clearer image."
+        st.progress(
+            min(
+                max(confidence, 0.0),
+                1.0
             )
-
+        )
 
     st.divider()
 
-
     st.subheader(
-        "🔝 Top-3 Predictions"
+        "📊 Class Probabilities"
     )
 
+    # Show top 5 predictions
+    top_indices = np.argsort(
+        predictions
+    )[::-1][:5]
 
-    for rank, (
-        class_name,
-        value
-    ) in enumerate(
-        get_top_predictions(
-            probabilities,
-            3
-        ),
-        start=1
-    ):
+    for idx in top_indices:
+
+        probability = float(
+            predictions[idx]
+        )
 
         st.write(
-            f"**{rank}. "
-            f"{DISPLAY_NAMES[class_name]}** "
-            f"— {value * 100:.2f}%"
+            f"**{clean_class_name(CLASS_NAMES[idx])}** — "
+            f"{probability * 100:.2f}%"
         )
 
         st.progress(
             min(
-                max(value, 0),
-                1
+                max(probability, 0.0),
+                1.0
             )
         )
 
 
 # ============================================================
-# 26. EXPLAINABLE AI
+# EXPLAINABLE AI
 # ============================================================
 
-elif page == "🧠 Explainable AI":
+elif page == "Explainable AI":
 
-    st.title(
+    st.header(
         "🧠 Explainable AI — Grad-CAM"
     )
 
-    image = (
-        st.session_state.image
-    )
-
-    probabilities = (
-        st.session_state.probabilities
-    )
-
-    predicted_index = int(
-        np.argmax(
-            probabilities
-        )
-    )
-
-
-    st.write(
+    st.markdown(
         """
-        Grad-CAM shows which image regions contributed
-        most strongly to the CNN prediction.
-        """
+Grad-CAM highlights the image regions that contributed
+to the CNN prediction.
+"""
     )
 
+    st.image(
+        image,
+        caption="Original Image",
+        use_container_width=True
+    )
 
-    try:
-
-        with st.spinner(
-            "Generating Grad-CAM..."
-        ):
-
-            heatmap, layer_name = (
-                make_gradcam(
-                    image,
-                    predicted_index
-                )
-            )
-
-
-        st.session_state.gradcam = (
-            heatmap
-        )
-
-        st.session_state.gradcam_layer = (
-            layer_name
-        )
-
-
-        heatmap_image = (
-            create_heatmap_image(
-                heatmap
-            )
-        )
-
-        overlay = (
-            create_overlay(
-                image,
-                heatmap
-            )
-        )
-
-
-        st.success(
-            "✓ Grad-CAM generated successfully."
-        )
-
-        st.info(
-            f"Convolutional Layer: `{layer_name}`"
-        )
-
-
-        c1, c2, c3 = st.columns(
-            3
-        )
-
-
-        with c1:
-
-            st.subheader(
-                "Original"
-            )
-
-            st.image(
-                image,
-                use_container_width=True
-            )
-
-
-        with c2:
-
-            st.subheader(
-                "Heatmap"
-            )
-
-            st.image(
-                heatmap_image,
-                use_container_width=True
-            )
-
-
-        with c3:
-
-            st.subheader(
-                "Overlay"
-            )
-
-            st.image(
-                overlay,
-                use_container_width=True
-            )
-
-
-        st.divider()
-
-
-        st.subheader(
-            "🧠 Interpretation"
-        )
-
-        st.write(
-            """
-            Brighter regions indicate areas that contributed
-            more strongly to the model's prediction. This can
-            help determine whether the CNN is focusing on
-            relevant leaf regions.
-            """
-        )
-
-
-    except Exception as e:
+    if last_conv_layer is None:
 
         st.error(
-            "❌ Grad-CAM could not be generated."
+            "No convolutional layer was found in the model."
         )
 
-        st.code(
-            str(e)
-        )
+    else:
 
-        st.warning(
-            """
-            Make sure the GitHub model is the Functional API
-            model saved from your Kaggle Grad-CAM notebook:
-            
-            potato_gradcam_model.keras
-            """
-        )
+        with st.spinner(
+            "Generating Grad-CAM explanation..."
+        ):
+
+            heatmap, grad_error = generate_gradcam(
+                processed_image,
+                model,
+                last_conv_layer
+            )
+
+        if heatmap is not None:
+
+            overlay = create_gradcam_overlay(
+                image,
+                heatmap
+            )
+
+            col1, col2 = st.columns(
+                2
+            )
+
+            with col1:
+
+                st.image(
+                    create_heatmap_image(
+                        heatmap
+                    ),
+                    caption="Grad-CAM Heatmap",
+                    use_container_width=True
+                )
+
+            with col2:
+
+                st.image(
+                    overlay,
+                    caption="Grad-CAM Overlay",
+                    use_container_width=True
+                )
+
+            st.success(
+                "✅ Grad-CAM generated successfully."
+            )
+
+            st.info(
+                f"Prediction: {clean_class_name(predicted_class)} "
+                f"({confidence * 100:.2f}%)"
+            )
+
+        else:
+
+            st.error(
+                "❌ Grad-CAM could not be generated."
+            )
+
+            st.code(
+                grad_error
+            )
+
+            st.info(
+                f"Detected convolutional layer: "
+                f"{last_conv_layer.name}"
+            )
 
 
 # ============================================================
-# 27. DISEASE INFORMATION
+# DISEASE INFORMATION
 # ============================================================
 
-elif page == "📚 Disease Information":
+elif page == "Disease Information":
 
-    st.title(
-        "📚 Disease Information"
+    st.header(
+        "🦠 Disease Information"
     )
 
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    confidence = (
-        st.session_state.confidence
-    )
-
-    info = get_info(
+    info = get_disease_info(
         predicted_class
     )
 
-
     st.subheader(
-        f"🌿 {info['name']}"
+        info["name"]
     )
 
     st.write(
-        info["description"]
-    )
-
-    st.metric(
-        "Model Confidence",
+        f"**Model Confidence:** "
         f"{confidence * 100:.2f}%"
     )
 
-
-    st.divider()
-
-
-    st.subheader(
-        "🔎 Symptoms"
+    st.markdown(
+        "### Cause"
     )
 
-    for item in info[
-        "symptoms"
-    ]:
-
-        st.write(
-            "• " + item
-        )
-
-
-    st.divider()
-
-
-    st.subheader(
-        "🦠 Possible Causes"
+    st.write(
+        info["cause"]
     )
 
-    for item in info[
-        "causes"
-    ]:
+    st.markdown(
+        "### Symptoms"
+    )
+
+    for symptom in info["symptoms"]:
 
         st.write(
-            "• " + item
+            f"• {symptom}"
         )
 
 
 # ============================================================
-# 28. CAUSES & SOLUTIONS
+# CAUSE & SOLUTION
 # ============================================================
 
-elif page == "🩺 Causes & Solutions":
+elif page == "Cause & Solution":
 
-    st.title(
-        "🩺 Causes & Solutions"
+    st.header(
+        "🌱 Why Did This Problem Occur?"
     )
 
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    info = get_info(
+    info = get_disease_info(
         predicted_class
     )
 
-
     st.subheader(
-        f"Detected Condition: {info['name']}"
+        "Possible Cause"
     )
 
-
-    st.divider()
-
-
-    st.subheader(
-        "❓ Why can this problem happen?"
+    st.write(
+        info["cause"]
     )
 
-    for item in info[
-        "causes"
-    ]:
+    st.subheader(
+        "⚡ Recommended Management"
+    )
+
+    for item in info["management"]:
 
         st.write(
-            "• " + item
+            f"✅ {item}"
         )
-
-
-    st.divider()
-
-
-    st.subheader(
-        "⚡ What should be done first?"
-    )
-
-    for item in info[
-        "actions"
-    ]:
-
-        st.write(
-            "✅ " + item
-        )
-
-
-    st.divider()
-
 
     st.subheader(
         "🛡️ Prevention"
     )
 
-    for item in info[
-        "prevention"
-    ]:
+    for item in info["prevention"]:
 
         st.write(
-            "• " + item
+            f"• {item}"
         )
-
 
     st.warning(
-        """
-        ⚠️ This application provides AI-based preliminary
-        classification and general management information.
-        Follow local agricultural recommendations for treatment.
-        """
+        "These recommendations are general educational guidance. "
+        "For severe crop damage, confirm the diagnosis with "
+        "an agricultural expert."
     )
 
 
 # ============================================================
-# 29. VISUAL ATTENTION / EXPERIMENTAL SEVERITY
+# BATCH ANALYSIS
 # ============================================================
 
-elif page == "🩺 Severity / Attention":
+elif page == "Batch Analysis":
 
-    st.title(
-        "🩺 Visual Attention Analysis"
+    st.header(
+        "📁 Batch Image Analysis"
     )
-
-    st.info(
-        """
-        This is an experimental Grad-CAM-based visual attention
-        indicator. It is NOT a clinically/agronomically validated
-        disease-severity percentage because the current CNN was
-        trained for disease classification, not severity classes.
-        """
-    )
-
-
-    image = (
-        st.session_state.image
-    )
-
-    predicted_index = int(
-        np.argmax(
-            st.session_state.probabilities
-        )
-    )
-
-
-    try:
-
-        heatmap, layer_name = (
-            make_gradcam(
-                image,
-                predicted_index
-            )
-        )
-
-
-        area, level = (
-            estimate_attention(
-                heatmap
-            )
-        )
-
-
-        c1, c2 = st.columns(
-            2
-        )
-
-
-        with c1:
-
-            st.metric(
-                "High-activation area",
-                f"{area:.2f}%"
-            )
-
-
-        with c2:
-
-            st.metric(
-                "Attention Level",
-                level
-            )
-
-
-        st.image(
-            create_overlay(
-                image,
-                heatmap
-            ),
-            caption="Grad-CAM Visual Attention",
-            use_container_width=True
-        )
-
-
-        st.write(
-            """
-            A larger highlighted region means the model's
-            prediction is distributed across a larger image area.
-            It should not be interpreted as the exact percentage
-            of diseased tissue.
-            """
-        )
-
-
-    except Exception as e:
-
-        st.error(
-            "Visual attention analysis failed."
-        )
-
-        st.code(
-            str(e)
-        )
-
-
-# ============================================================
-# 30. ANALYSIS REPORT
-# ============================================================
-
-elif page == "📄 Analysis Report":
-
-    st.title(
-        "📄 Analysis Report"
-    )
-
-    report = create_report()
-
-
-    st.text_area(
-        "Report Preview",
-        report,
-        height=500
-    )
-
-
-    st.download_button(
-        "⬇️ Download Analysis Report",
-        data=report.encode(
-            "utf-8"
-        ),
-        file_name=(
-            "potato_disease_report.txt"
-        ),
-        mime="text/plain"
-    )
-
-
-# ============================================================
-# 31. BATCH ANALYSIS
-# ============================================================
-
-elif page == "📦 Batch Analysis":
-
-    st.title(
-        "📦 Batch Analysis"
-    )
-
-    st.write(
-        """
-        Upload multiple potato leaf images and analyze
-        them together.
-        """
-    )
-
 
     files = st.file_uploader(
-        "Upload multiple images",
+        "Upload multiple leaf images",
         type=[
             "jpg",
             "jpeg",
             "png"
         ],
-        accept_multiple_files=True,
-        key="batch_uploader"
+        accept_multiple_files=True
     )
-
 
     if files:
 
-        rows = []
+        results = []
 
         progress = st.progress(
             0
         )
 
-        start_time = time.time()
+        total = len(files)
 
-
-        for index, file in enumerate(
-            files
-        ):
+        for i, file in enumerate(files):
 
             try:
 
-                image = Image.open(
+                batch_image = Image.open(
                     file
                 ).convert("RGB")
 
-
-                (
-                    predicted_class,
-                    confidence,
-                    probabilities
-                ) = predict_image(
-                    image
+                batch_input = preprocess_image(
+                    batch_image
                 )
 
+                batch_prediction = model.predict(
+                    batch_input,
+                    verbose=0
+                )[0]
 
-                level, _ = (
-                    confidence_level(
-                        confidence
+                idx = int(
+                    np.argmax(
+                        batch_prediction
                     )
                 )
 
+                pred = CLASS_NAMES[
+                    idx
+                ]
 
-                rows.append(
-                    {
-                        "Image": file.name,
-                        "Prediction":
-                            DISPLAY_NAMES[
-                                predicted_class
-                            ],
-                        "Confidence":
-                            f"{confidence * 100:.2f}%",
-                        "Reliability":
-                            level
-                    }
+                conf = float(
+                    batch_prediction[
+                        idx
+                    ]
                 )
 
+                results.append(
+                    {
+                        "Image": file.name,
+                        "Prediction": clean_class_name(pred),
+                        "Confidence": f"{conf * 100:.2f}%"
+                    }
+                )
 
             except Exception as e:
 
-                rows.append(
+                results.append(
                     {
                         "Image": file.name,
                         "Prediction": "Error",
-                        "Confidence": "N/A",
-                        "Reliability": str(e)
+                        "Confidence": str(e)
                     }
                 )
 
-
             progress.progress(
-                int(
-                    (
-                        (index + 1)
-                        /
-                        len(files)
-                    )
-                    * 100
-                )
+                (i + 1) / total
             )
 
-
-        elapsed = (
-            time.time()
-            - start_time
-        )
-
-
-        st.success(
-            f"✓ {len(files)} images analyzed "
-            f"in {elapsed:.2f} seconds."
-        )
-
-
         st.dataframe(
-            rows,
+            results,
             use_container_width=True
         )
 
-
-        healthy = sum(
-            1
-            for row in rows
-            if row["Prediction"]
-            == "Healthy"
+        st.success(
+            f"Analyzed {total} images."
         )
-
-
-        early = sum(
-            1
-            for row in rows
-            if row["Prediction"]
-            == "Early Blight"
-        )
-
-
-        late = sum(
-            1
-            for row in rows
-            if row["Prediction"]
-            == "Late Blight"
-        )
-
-
-        c1, c2, c3, c4 = (
-            st.columns(4)
-        )
-
-
-        with c1:
-
-            st.metric(
-                "Total",
-                len(files)
-            )
-
-
-        with c2:
-
-            st.metric(
-                "Healthy",
-                healthy
-            )
-
-
-        with c3:
-
-            st.metric(
-                "Early Blight",
-                early
-            )
-
-
-        with c4:
-
-            st.metric(
-                "Late Blight",
-                late
-            )
-
-
-        st.subheader(
-            "📊 Disease Distribution"
-        )
-
-
-        chart_data = {
-            "Class": [
-                "Healthy",
-                "Early Blight",
-                "Late Blight"
-            ],
-            "Images": [
-                healthy,
-                early,
-                late
-            ]
-        }
-
-
-        st.bar_chart(
-            chart_data,
-            x="Class",
-            y="Images"
-        )
-
-
-        csv_output = io.StringIO()
-
-
-        writer = csv.DictWriter(
-            csv_output,
-            fieldnames=[
-                "Image",
-                "Prediction",
-                "Confidence",
-                "Reliability"
-            ]
-        )
-
-
-        writer.writeheader()
-
-        writer.writerows(
-            rows
-        )
-
-
-        st.download_button(
-            "⬇️ Download Batch CSV",
-            data=csv_output.getvalue().encode(
-                "utf-8-sig"
-            ),
-            file_name=(
-                "batch_analysis.csv"
-            ),
-            mime="text/csv"
-        )
-
 
     else:
 
         st.info(
-            "Upload multiple images to start."
+            "Upload multiple images to perform batch analysis."
         )
 
 
 # ============================================================
-# 32. PERFORMANCE
+# MODEL COMPARISON
 # ============================================================
 
-elif page == "📊 Performance":
+elif page == "Model Comparison":
 
-    st.title(
-        "📊 Model Performance"
-    )
-
-    st.write(
-        """
-        Real evaluation metrics are displayed only when
-        a compatible test dataset or exported training history
-        is available.
-        """
-    )
-
-
-    test_candidates = [
-        "test",
-        "Test",
-        "dataset/test",
-        "data/test"
-    ]
-
-
-    test_dir = None
-
-
-    for candidate in test_candidates:
-
-        if os.path.isdir(
-            candidate
-        ):
-
-            test_dir = candidate
-
-            break
-
-
-    if test_dir is None:
-
-        st.warning(
-            """
-            No test dataset folder was found.
-
-            A `.keras` model alone cannot reconstruct the
-            original test Accuracy, Precision, Recall,
-            F1 Score and Confusion Matrix.
-            """
-        )
-
-
-    else:
-
-        try:
-
-            test_ds = (
-                tf.keras.utils
-                .image_dataset_from_directory(
-                    test_dir,
-                    image_size=IMG_SIZE,
-                    batch_size=32,
-                    shuffle=False,
-                    class_names=CLASS_NAMES
-                )
-            )
-
-
-            y_true = []
-
-            y_pred = []
-
-
-            start = time.time()
-
-
-            for images, labels in test_ds:
-
-                images = (
-                    tf.cast(
-                        images,
-                        tf.float32
-                    )
-                    / 255.0
-                )
-
-
-                outputs = (
-                    model.predict(
-                        images,
-                        verbose=0
-                    )
-                )
-
-
-                y_true.extend(
-                    labels.numpy().tolist()
-                )
-
-
-                y_pred.extend(
-                    np.argmax(
-                        outputs,
-                        axis=1
-                    ).tolist()
-                )
-
-
-            elapsed = (
-                time.time()
-                - start
-            )
-
-
-            (
-                accuracy,
-                precision,
-                recall,
-                f1,
-                matrix
-            ) = calculate_metrics(
-                y_true,
-                y_pred,
-                len(CLASS_NAMES)
-            )
-
-
-            st.subheader(
-                "🎯 Evaluation Components"
-            )
-
-
-            c1, c2, c3, c4 = (
-                st.columns(4)
-            )
-
-
-            with c1:
-
-                st.metric(
-                    "Accuracy",
-                    f"{accuracy * 100:.2f}%"
-                )
-
-
-            with c2:
-
-                st.metric(
-                    "Precision",
-                    f"{precision * 100:.2f}%"
-                )
-
-
-            with c3:
-
-                st.metric(
-                    "Recall",
-                    f"{recall * 100:.2f}%"
-                )
-
-
-            with c4:
-
-                st.metric(
-                    "F1 Score",
-                    f"{f1 * 100:.2f}%"
-                )
-
-
-            st.divider()
-
-
-            st.subheader(
-                "🔲 Confusion Matrix"
-            )
-
-
-            display_names = [
-                DISPLAY_NAMES[
-                    x
-                ]
-                for x in CLASS_NAMES
-            ]
-
-
-            matrix_rows = []
-
-
-            for i, actual in enumerate(
-                display_names
-            ):
-
-                row = {
-                    "Actual": actual
-                }
-
-
-                for j, predicted in enumerate(
-                    display_names
-                ):
-
-                    row[predicted] = int(
-                        matrix[
-                            i,
-                            j
-                        ]
-                    )
-
-
-                matrix_rows.append(
-                    row
-                )
-
-
-            st.dataframe(
-                matrix_rows,
-                use_container_width=True
-            )
-
-
-            st.divider()
-
-
-            correct = int(
-                np.sum(
-                    np.asarray(
-                        y_true
-                    )
-                    ==
-                    np.asarray(
-                        y_pred
-                    )
-                )
-            )
-
-
-            incorrect = (
-                len(y_true)
-                - correct
-            )
-
-
-            c1, c2, c3 = (
-                st.columns(3)
-            )
-
-
-            with c1:
-
-                st.metric(
-                    "Test Images",
-                    len(y_true)
-                )
-
-
-            with c2:
-
-                st.metric(
-                    "Correct",
-                    correct
-                )
-
-
-            with c3:
-
-                st.metric(
-                    "Incorrect",
-                    incorrect
-                )
-
-
-            st.caption(
-                f"Evaluation time: "
-                f"{elapsed:.2f} seconds"
-            )
-
-
-        except Exception as e:
-
-            st.error(
-                "❌ Test evaluation failed."
-            )
-
-            st.code(
-                str(e)
-            )
-
-
-    # --------------------------------------------------------
-    # TRAINING HISTORY
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.subheader(
-        "📈 Training / Validation Performance"
-    )
-
-
-    history = read_history()
-
-
-    if history is None:
-
-        st.info(
-            """
-            `training_history.json` was not found.
-
-            Export your Kaggle `history.history` dictionary
-            as JSON and put it beside app.py.
-            """
-        )
-
-
-    else:
-
-        try:
-
-            acc_key = (
-                "accuracy"
-                if "accuracy" in history
-                else
-                "acc"
-                if "acc" in history
-                else None
-            )
-
-
-            val_acc_key = (
-                "val_accuracy"
-                if "val_accuracy" in history
-                else
-                "val_acc"
-                if "val_acc" in history
-                else None
-            )
-
-
-            loss_key = (
-                "loss"
-                if "loss" in history
-                else None
-            )
-
-
-            val_loss_key = (
-                "val_loss"
-                if "val_loss" in history
-                else None
-            )
-
-
-            if (
-                acc_key
-                and
-                val_acc_key
-            ):
-
-                chart = []
-
-
-                length = min(
-                    len(
-                        history[
-                            acc_key
-                        ]
-                    ),
-                    len(
-                        history[
-                            val_acc_key
-                        ]
-                    )
-                )
-
-
-                for i in range(
-                    length
-                ):
-
-                    chart.append(
-                        {
-                            "Epoch":
-                                i + 1,
-
-                            "Training Accuracy":
-                                history[
-                                    acc_key
-                                ][i],
-
-                            "Validation Accuracy":
-                                history[
-                                    val_acc_key
-                                ][i]
-                        }
-                    )
-
-
-                st.write(
-                    "Training vs Validation Accuracy"
-                )
-
-
-                st.line_chart(
-                    chart,
-                    x="Epoch",
-                    y=[
-                        "Training Accuracy",
-                        "Validation Accuracy"
-                    ]
-                )
-
-
-            if (
-                loss_key
-                and
-                val_loss_key
-            ):
-
-                chart = []
-
-
-                length = min(
-                    len(
-                        history[
-                            loss_key
-                        ]
-                    ),
-                    len(
-                        history[
-                            val_loss_key
-                        ]
-                    )
-                )
-
-
-                for i in range(
-                    length
-                ):
-
-                    chart.append(
-                        {
-                            "Epoch":
-                                i + 1,
-
-                            "Training Loss":
-                                history[
-                                    loss_key
-                                ][i],
-
-                            "Validation Loss":
-                                history[
-                                    val_loss_key
-                                ][i]
-                        }
-                    )
-
-
-                st.write(
-                    "Training vs Validation Loss"
-                )
-
-
-                st.line_chart(
-                    chart,
-                    x="Epoch",
-                    y=[
-                        "Training Loss",
-                        "Validation Loss"
-                    ]
-                )
-
-
-        except Exception as e:
-
-            st.error(
-                "Training history could not be displayed."
-            )
-
-            st.code(
-                str(e)
-            )
-
-
-# ============================================================
-# 33. MODEL COMPARISON
-# ============================================================
-
-elif page == "⚖️ Model Comparison":
-
-    st.title(
+    st.header(
         "⚖️ Model Comparison"
     )
 
+    st.markdown(
+        """
+The project compares the lightweight Custom CNN
+with transfer-learning architectures.
+"""
+    )
 
-    comparison = (
-        read_model_comparison()
+    st.table(
+        {
+            "Model": [
+                "Custom CNN",
+                "ResNet50",
+                "MobileNetV2"
+            ],
+            "Architecture": [
+                "Lightweight CNN",
+                "Transfer Learning",
+                "Transfer Learning"
+            ],
+            "Input Size": [
+                "224×224×3",
+                "224×224×3",
+                "224×224×3"
+            ],
+            "Main Goal": [
+                "Lightweight deployment",
+                "High-level feature extraction",
+                "Efficient mobile deployment"
+            ]
+        }
+    )
+
+    st.info(
+        "For exact Accuracy, Loss, Parameters, Precision, "
+        "Recall and F1 values, enter the values obtained "
+        "from your Kaggle evaluation."
     )
 
 
-    if comparison is None:
+# ============================================================
+# PERFORMANCE
+# ============================================================
 
-        st.warning(
-            """
-            `model_comparison.json` was not found.
+elif page == "Performance":
 
-            I am not putting fake Accuracy, Loss or Parameter
-            values into your thesis application.
-            """
+    st.header(
+        "📈 Model Performance"
+    )
+
+    st.subheader(
+        "Current Prediction"
+    )
+
+    st.metric(
+        "Predicted Class",
+        clean_class_name(
+            predicted_class
         )
+    )
 
-
-    else:
-
-        st.subheader(
-            "📊 Experimental Results"
-        )
-
-
-        if isinstance(
-            comparison,
-            list
-        ):
-
-            st.dataframe(
-                comparison,
-                use_container_width=True
-            )
-
-
-        elif isinstance(
-            comparison,
-            dict
-        ):
-
-            if isinstance(
-                comparison.get(
-                    "rows"
-                ),
-                list
-            ):
-
-                st.dataframe(
-                    comparison[
-                        "rows"
-                    ],
-                    use_container_width=True
-                )
-
-            else:
-
-                st.json(
-                    comparison
-                )
-
+    st.metric(
+        "Prediction Confidence",
+        f"{confidence * 100:.2f}%"
+    )
 
     st.divider()
 
-
     st.subheader(
-        "🏗️ Architecture Comparison"
+        "Evaluation Components"
     )
-
-
-    architecture = [
-        {
-            "Model":
-                "Custom CNN",
-
-            "Type":
-                "Proposed Lightweight CNN",
-
-            "Input":
-                "224 × 224 × 3",
-
-            "Classes":
-                "3",
-
-            "Purpose":
-                "Lightweight disease classification"
-        },
-
-        {
-            "Model":
-                "ResNet50",
-
-            "Type":
-                "Transfer Learning",
-
-            "Input":
-                "224 × 224 × 3",
-
-            "Classes":
-                "3",
-
-            "Purpose":
-                "Baseline comparison"
-        },
-
-        {
-            "Model":
-                "MobileNetV2",
-
-            "Type":
-                "Transfer Learning",
-
-            "Input":
-                "224 × 224 × 3",
-
-            "Classes":
-                "3",
-
-            "Purpose":
-                "Lightweight transfer-learning comparison"
-        }
-    ]
-
-
-    st.dataframe(
-        architecture,
-        use_container_width=True
-    )
-
-
-# ============================================================
-# 34. MODEL EFFICIENCY
-# ============================================================
-
-elif page == "⚡ Model Efficiency":
-
-    st.title(
-        "⚡ Model Efficiency"
-    )
-
 
     st.write(
-        """
-        This section measures the deployed Custom CNN itself.
-        """
+        "✓ Accuracy"
     )
 
-
-    try:
-
-        parameters = (
-            model.count_params()
-        )
-
-
-        model_size = (
-            os.path.getsize(
-                MODEL_PATH
-            )
-            /
-            (1024 * 1024)
-        )
-
-
-        dummy = np.zeros(
-            (
-                1,
-                224,
-                224,
-                3
-            ),
-            dtype=np.float32
-        )
-
-
-        # Warm-up
-        model.predict(
-            dummy,
-            verbose=0
-        )
-
-
-        runs = 5
-
-
-        start = (
-            time.perf_counter()
-        )
-
-
-        for _ in range(
-            runs
-        ):
-
-            model.predict(
-                dummy,
-                verbose=0
-            )
-
-
-        elapsed = (
-            time.perf_counter()
-            - start
-        )
-
-
-        inference_ms = (
-            elapsed
-            /
-            runs
-        ) * 1000
-
-
-        c1, c2, c3 = (
-            st.columns(3)
-        )
-
-
-        with c1:
-
-            st.metric(
-                "Parameters",
-                f"{parameters:,}"
-            )
-
-
-        with c2:
-
-            st.metric(
-                "Model Size",
-                f"{model_size:.2f} MB"
-            )
-
-
-        with c3:
-
-            st.metric(
-                "Inference Time",
-                f"{inference_ms:.2f} ms"
-            )
-
-
-        st.success(
-            "✓ Values measured from the deployed model."
-        )
-
-
-    except Exception as e:
-
-        st.error(
-            "Model efficiency calculation failed."
-        )
-
-        st.code(
-            str(e)
-        )
-
-
-    st.divider()
-
-
-    st.subheader(
-        "🤖 Other Model Comparison"
+    st.write(
+        "✓ Precision"
     )
 
-
-    comparison = (
-        read_model_comparison()
+    st.write(
+        "✓ Recall"
     )
 
+    st.write(
+        "✓ F1 Score"
+    )
 
-    if comparison is not None:
+    st.write(
+        "✓ Confusion Matrix"
+    )
 
-        if isinstance(
-            comparison,
-            list
-        ):
+    st.write(
+        "✓ Training / Validation Performance"
+    )
 
-            st.dataframe(
-                comparison,
-                use_container_width=True
-            )
+    st.warning(
+        "These evaluation metrics cannot be calculated "
+        "from a single uploaded image. They must be calculated "
+        "using the original test dataset and true labels."
+    )
 
-        else:
-
-            st.json(
-                comparison
-            )
-
-    else:
-
-        st.info(
-            "Add model_comparison.json to show "
-            "Custom CNN vs ResNet50 vs MobileNetV2."
-        )
+    st.info(
+        "Your Kaggle test results should be entered here "
+        "if you want the final Streamlit app to display "
+        "the exact research evaluation metrics."
+    )
 
 
 # ============================================================
-# 35. FOOTER
+# FOOTER
 # ============================================================
 
-st.sidebar.divider()
-
-st.sidebar.caption(
-    "🥔 Potato Plant Disease Detection"
+st.markdown(
+    "---"
 )
 
-st.sidebar.caption(
-    "Custom CNN • Grad-CAM • Explainable AI"
+st.caption(
+    "Potato Plant Disease Detection | "
+    "Explainable CNN | Grad-CAM | Streamlit"
 )
