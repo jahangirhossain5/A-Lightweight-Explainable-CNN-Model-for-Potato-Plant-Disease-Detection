@@ -1,15 +1,13 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-
 from PIL import Image
 import os
 import json
 import time
 
-
 # ============================================================
-# PAGE CONFIGURATION
+# CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -18,13 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-
-# ============================================================
-# CONSTANTS
-# ============================================================
-
-MODEL_PATH = "best_custom_cnn.keras"
-
+MODEL_PATH = "explainable_cnn_model.keras"
 IMG_SIZE = (224, 224)
 
 CLASS_NAMES = [
@@ -39,735 +31,477 @@ DISPLAY_NAMES = {
     "Potato___healthy": "Healthy"
 }
 
-
 # ============================================================
-# DISEASE INFORMATION
+# DISEASE KNOWLEDGE
 # ============================================================
 
 DISEASE_INFO = {
-
     "Potato___Early_blight": {
-
         "name": "Early Blight",
-
-        "description":
-            "Early blight is a common fungal disease of potato "
-            "plants that mainly affects leaves and can reduce "
-            "plant productivity.",
-
+        "description": "A common potato leaf disease that can reduce plant growth and yield.",
         "symptoms": [
-            "Brown or dark circular spots on leaves",
-            "Concentric ring-like patterns may appear",
-            "Older leaves are usually affected first",
-            "Severely infected leaves may turn yellow and die"
+            "Brown or dark spots on leaves",
+            "Circular or target-like patterns may appear",
+            "Older leaves are often affected first",
+            "Severely affected leaves can yellow and die"
         ],
-
         "causes": [
             "Fungal infection",
-            "Warm and humid environmental conditions",
+            "Warm and humid conditions",
             "Poor air circulation",
             "Infected plant debris"
         ],
-
-        "solution": [
-            "Remove severely infected leaves",
-            "Keep proper spacing between plants",
+        "actions": [
+            "Remove severely affected leaves when practical",
+            "Improve plant spacing and air circulation",
             "Avoid unnecessary overhead irrigation",
-            "Maintain good field sanitation",
-            "Use appropriate fungicide according to local agricultural guidance"
+            "Remove infected plant debris",
+            "Use locally recommended fungicide practices when appropriate"
         ],
-
         "prevention": [
             "Use healthy planting material",
-            "Remove infected plant debris",
-            "Maintain proper plant spacing",
+            "Maintain field sanitation",
             "Avoid prolonged leaf wetness",
             "Monitor plants regularly"
         ]
     },
-
-
     "Potato___Late_blight": {
-
         "name": "Late Blight",
-
-        "description":
-            "Late blight is a destructive potato disease that "
-            "can spread rapidly under cool and humid conditions.",
-
+        "description": "A potentially fast-spreading potato disease, especially under cool and humid conditions.",
         "symptoms": [
             "Dark brown or black irregular lesions",
             "Water-soaked appearance may occur",
-            "Lesions can expand rapidly",
-            "Severely affected leaves may collapse"
+            "Lesions can expand quickly",
+            "Leaves can collapse when infection becomes severe"
         ],
-
         "causes": [
             "Pathogen infection",
             "Cool and humid weather",
             "Extended leaf wetness",
             "Poor field sanitation"
         ],
-
-        "solution": [
-            "Remove severely infected plant material",
+        "actions": [
+            "Remove severely infected plant material where practical",
             "Improve air circulation",
             "Avoid prolonged leaf wetness",
-            "Monitor surrounding plants carefully",
-            "Use appropriate fungicide according to local agricultural guidance"
+            "Monitor nearby plants carefully",
+            "Follow locally recommended disease-management guidance"
         ],
-
         "prevention": [
             "Use disease-free planting material",
-            "Monitor plants frequently",
-            "Maintain good field sanitation",
+            "Inspect plants frequently",
+            "Maintain field sanitation",
             "Avoid excessive irrigation",
-            "Control disease early before rapid spread"
+            "Act early when symptoms appear"
         ]
     },
-
-
     "Potato___healthy": {
-
         "name": "Healthy",
-
-        "description":
-            "The model classified the uploaded potato leaf "
-            "as healthy.",
-
+        "description": "The model classified the uploaded potato leaf as healthy.",
         "symptoms": [
-            "No major visible disease symptoms detected",
-            "Leaf structure appears generally healthy",
-            "No strong disease-related pattern detected by the model"
+            "No strong disease pattern detected by the model",
+            "Leaf appearance is generally consistent with a healthy class"
         ],
-
         "causes": [
-            "No major disease pattern detected"
+            "No disease pattern was detected by the model"
         ],
-
-        "solution": [
+        "actions": [
             "Continue regular monitoring",
             "Maintain proper irrigation",
-            "Provide balanced plant nutrition",
-            "Maintain good field sanitation"
+            "Maintain balanced plant nutrition",
+            "Keep the field clean"
         ],
-
         "prevention": [
             "Use healthy planting material",
             "Monitor leaves regularly",
-            "Maintain proper spacing",
+            "Maintain appropriate plant spacing",
             "Control pests and weeds",
-            "Maintain appropriate field hygiene"
+            "Maintain field hygiene"
         ]
     }
 }
 
-
 # ============================================================
-# MODEL LOADING
+# MODEL
 # ============================================================
 
 @st.cache_resource
 def load_model():
-
     if not os.path.exists(MODEL_PATH):
-
-        return None
+        return None, f"Model file not found: {MODEL_PATH}"
 
     try:
-
-        model = tf.keras.models.load_model(
+        loaded_model = tf.keras.models.load_model(
             MODEL_PATH,
             compile=False
         )
-
-        return model
-
-    except Exception as e:
-
-        st.error(
-            "❌ Model could not be loaded."
-        )
-
-        st.code(str(e))
-
-        return None
+        return loaded_model, None
+    except Exception as exc:
+        return None, str(exc)
 
 
-model = load_model()
-
+model, model_error = load_model()
 
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-if "uploaded_image" not in st.session_state:
-    st.session_state.uploaded_image = None
+defaults = {
+    "image": None,
+    "prediction": None,
+    "probabilities": None,
+    "confidence": None,
+    "filename": None
+}
 
-if "prediction" not in st.session_state:
-    st.session_state.prediction = None
-
-if "probabilities" not in st.session_state:
-    st.session_state.probabilities = None
-
-if "confidence" not in st.session_state:
-    st.session_state.confidence = None
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.title("🥔 Potato Plant Disease Detection System")
-
-st.markdown(
-    """
-    ### AI-powered Potato Leaf Analysis
-
-    Upload **one potato leaf image** from the Home section.
-    The same image will automatically be used for:
-
-    **Disease Detection → Explainable AI → Disease Information
-    → Causes & Solutions**
-    """
-)
-
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 # ============================================================
-# MODEL CHECK
-# ============================================================
-
-if model is None:
-
-    st.error(
-        f"""
-        ❌ Model file not found.
-
-        Please make sure this file exists in your GitHub
-        repository:
-
-        `{MODEL_PATH}`
-        """
-    )
-
-    st.stop()
-
-
-# ============================================================
-# HELPER FUNCTIONS
+# HELPERS
 # ============================================================
 
 def preprocess_image(image):
-
-    image = image.convert("RGB")
-
-    image = image.resize(
-        IMG_SIZE
-    )
-
-    image_array = np.array(
-        image,
-        dtype=np.float32
-    )
-
-    image_array = image_array / 255.0
-
-    image_array = np.expand_dims(
-        image_array,
-        axis=0
-    )
-
-    return image_array
+    image = image.convert("RGB").resize(IMG_SIZE)
+    array = np.asarray(image, dtype=np.float32) / 255.0
+    return np.expand_dims(array, axis=0)
 
 
-def get_prediction(image):
+def predict_image(image):
+    processed = preprocess_image(image)
+    output = model.predict(processed, verbose=0)
+    output = np.asarray(output)
 
-    processed = preprocess_image(
-        image
-    )
+    if output.ndim == 2:
+        probabilities = output[0]
+    else:
+        probabilities = output.reshape(-1)
 
-    predictions = model.predict(
-        processed,
-        verbose=0
-    )
+    # If the model returns logits rather than probabilities,
+    # convert them to probabilities safely.
+    if (
+        np.min(probabilities) < 0
+        or np.max(probabilities) > 1.0
+        or not np.isclose(np.sum(probabilities), 1.0, atol=1e-3)
+    ):
+        exp_values = np.exp(
+            probabilities - np.max(probabilities)
+        )
+        probabilities = exp_values / np.sum(exp_values)
 
-    predictions = np.asarray(
-        predictions
-    )[0]
+    if len(probabilities) != len(CLASS_NAMES):
+        raise ValueError(
+            f"Model returned {len(probabilities)} outputs, "
+            f"but this app expects {len(CLASS_NAMES)} classes."
+        )
 
-    predicted_index = int(
-        np.argmax(predictions)
-    )
+    index = int(np.argmax(probabilities))
+    class_name = CLASS_NAMES[index]
+    confidence = float(probabilities[index])
 
-    predicted_class = CLASS_NAMES[
-        predicted_index
-    ]
-
-    confidence = float(
-        predictions[predicted_index]
-    )
-
-    return (
-        predicted_class,
-        confidence,
-        predictions
-    )
+    return class_name, confidence, probabilities
 
 
-def find_last_conv_layer():
+def find_conv_layer(layer):
+    # Direct Conv2D layer
+    if isinstance(layer, tf.keras.layers.Conv2D):
+        return layer
 
-    for layer in reversed(model.layers):
-
-        if isinstance(
-            layer,
-            tf.keras.layers.Conv2D
-        ):
-
-            return layer.name
+    # Search inside nested Functional/Sequential models
+    if hasattr(layer, "layers"):
+        for child in reversed(layer.layers):
+            found = find_conv_layer(child)
+            if found is not None:
+                return found
 
     return None
 
 
-def make_gradcam_heatmap(
-    image,
-    predicted_index
-):
+def get_gradcam_model():
+    conv_layer = find_conv_layer(model)
 
-    last_conv_layer_name = (
-        find_last_conv_layer()
-    )
-
-    if last_conv_layer_name is None:
-
+    if conv_layer is None:
         raise ValueError(
-            "No Conv2D layer found in model."
+            "No Conv2D layer was found in the loaded model. "
+            "Grad-CAM requires a convolutional layer."
         )
 
-    last_conv_layer = model.get_layer(
-        last_conv_layer_name
-    )
+    # Standard case: convolutional layer belongs to the loaded model.
+    try:
+        grad_model = tf.keras.models.Model(
+            inputs=model.inputs,
+            outputs=[conv_layer.output, model.output]
+        )
+        return grad_model, conv_layer.name
+    except Exception:
+        raise ValueError(
+            "The model's convolutional layer could not be connected "
+            "to the model output for Grad-CAM."
+        )
 
-    grad_model = tf.keras.models.Model(
-        inputs=model.inputs,
-        outputs=[
-            last_conv_layer.output,
-            model.output
-        ]
-    )
 
-    img_array = preprocess_image(
-        image
-    )
+def make_gradcam(image, class_index):
+    grad_model, layer_name = get_gradcam_model()
+    input_tensor = preprocess_image(image)
 
     with tf.GradientTape() as tape:
+        conv_output, predictions = grad_model(input_tensor)
+        score = predictions[:, class_index]
 
-        conv_outputs, predictions = (
-            grad_model(img_array)
-        )
-
-        class_score = predictions[
-            :, predicted_index
-        ]
-
-    gradients = tape.gradient(
-        class_score,
-        conv_outputs
-    )
+    gradients = tape.gradient(score, conv_output)
 
     if gradients is None:
+        raise ValueError("Gradients were not produced for Grad-CAM.")
 
+    # Works for standard 4-D convolutional feature maps.
+    if len(conv_output.shape) != 4:
         raise ValueError(
-            "Gradients could not be calculated."
+            f"Grad-CAM feature map has unsupported shape: {conv_output.shape}"
         )
 
-    pooled_gradients = tf.reduce_mean(
+    weights = tf.reduce_mean(
         gradients,
-        axis=(0, 1, 2)
+        axis=(1, 2)
     )
 
-    conv_outputs = conv_outputs[0]
+    conv_output = conv_output[0]
+    weights = weights[0]
 
     heatmap = tf.reduce_sum(
-        conv_outputs *
-        pooled_gradients,
+        conv_output * weights,
         axis=-1
     )
 
-    heatmap = tf.maximum(
-        heatmap,
-        0
-    )
+    heatmap = tf.maximum(heatmap, 0)
+    maximum = tf.reduce_max(heatmap)
 
-    max_heatmap = tf.reduce_max(
-        heatmap
-    )
+    if float(maximum) > 0:
+        heatmap = heatmap / maximum
 
-    if float(max_heatmap) > 0:
-
-        heatmap = (
-            heatmap / max_heatmap
-        )
-
-    return (
-        heatmap.numpy(),
-        last_conv_layer_name
-    )
+    return heatmap.numpy(), layer_name
 
 
-def create_heatmap_overlay(
-    image,
-    heatmap
-):
+def make_overlay(image, heatmap):
+    original = image.convert("RGB").resize(IMG_SIZE)
 
-    original = image.convert(
-        "RGB"
-    )
+    heat = Image.fromarray(
+        np.uint8(np.clip(heatmap * 255, 0, 255))
+    ).resize(IMG_SIZE)
 
-    original = original.resize(
-        IMG_SIZE
-    )
+    heat_array = np.asarray(heat, dtype=np.float32) / 255.0
 
-    heatmap_image = Image.fromarray(
-        np.uint8(heatmap * 255)
-    )
+    # Simple dependency-free RGB heatmap.
+    red = heat_array
+    green = np.sqrt(heat_array)
+    blue = 1.0 - heat_array
 
-    heatmap_image = heatmap_image.resize(
-        IMG_SIZE
-    )
+    rgb = np.stack([red, green, blue], axis=-1)
+    rgb = np.uint8(np.clip(rgb * 255, 0, 255))
 
-    heatmap_array = np.asarray(
-        heatmap_image,
-        dtype=np.float32
-    ) / 255.0
-
-    # Simple RGB heatmap
-    red = heatmap_array
-
-    green = np.sqrt(
-        heatmap_array
-    )
-
-    blue = 1.0 - heatmap_array
-
-    colored = np.stack(
-        [
-            red,
-            green,
-            blue
-        ],
-        axis=-1
-    )
-
-    colored = np.uint8(
-        np.clip(
-            colored * 255,
-            0,
-            255
-        )
-    )
-
-    heatmap_rgb = Image.fromarray(
-        colored
-    )
-
-    overlay = Image.blend(
-        original,
-        heatmap_rgb,
-        0.45
-    )
-
-    return overlay
+    heat_rgb = Image.fromarray(rgb)
+    return Image.blend(original, heat_rgb, 0.45)
 
 
-def calculate_metrics(
-    y_true,
-    y_pred,
-    number_of_classes
-):
+def calculate_metrics(y_true, y_pred, n_classes):
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_pred = np.asarray(y_pred, dtype=np.int64)
 
-    y_true = np.asarray(
-        y_true,
-        dtype=np.int64
-    )
+    matrix = np.zeros((n_classes, n_classes), dtype=np.int64)
 
-    y_pred = np.asarray(
-        y_pred,
-        dtype=np.int64
-    )
+    for actual, predicted in zip(y_true, y_pred):
+        if 0 <= actual < n_classes and 0 <= predicted < n_classes:
+            matrix[actual, predicted] += 1
 
-    accuracy = float(
-        np.mean(
-            y_true == y_pred
-        )
-    )
-
-    confusion = np.zeros(
-        (
-            number_of_classes,
-            number_of_classes
-        ),
-        dtype=np.int64
-    )
-
-    for actual, predicted in zip(
-        y_true,
-        y_pred
-    ):
-
-        if (
-            0 <= actual < number_of_classes
-            and
-            0 <= predicted < number_of_classes
-        ):
-
-            confusion[
-                actual,
-                predicted
-            ] += 1
+    accuracy = float(np.mean(y_true == y_pred))
 
     precisions = []
     recalls = []
-    f1_scores = []
+    f1s = []
 
-    for i in range(
-        number_of_classes
-    ):
+    for i in range(n_classes):
+        tp = matrix[i, i]
+        fp = int(np.sum(matrix[:, i]) - tp)
+        fn = int(np.sum(matrix[i, :]) - tp)
 
-        tp = confusion[i, i]
-
-        fp = (
-            np.sum(
-                confusion[:, i]
-            ) - tp
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall)
+            else 0.0
         )
 
-        fn = (
-            np.sum(
-                confusion[i, :]
-            ) - tp
-        )
-
-        if (
-            tp + fp
-        ) > 0:
-
-            precision = (
-                tp /
-                (tp + fp)
-            )
-
-        else:
-
-            precision = 0.0
-
-        if (
-            tp + fn
-        ) > 0:
-
-            recall = (
-                tp /
-                (tp + fn)
-            )
-
-        else:
-
-            recall = 0.0
-
-        if (
-            precision + recall
-        ) > 0:
-
-            f1 = (
-                2 *
-                precision *
-                recall /
-                (
-                    precision +
-                    recall
-                )
-            )
-
-        else:
-
-            f1 = 0.0
-
-        precisions.append(
-            precision
-        )
-
-        recalls.append(
-            recall
-        )
-
-        f1_scores.append(
-            f1
-        )
+        precisions.append(precision)
+        recalls.append(recall)
+        f1s.append(f1)
 
     return (
         accuracy,
         float(np.mean(precisions)),
         float(np.mean(recalls)),
-        float(np.mean(f1_scores)),
-        confusion
+        float(np.mean(f1s)),
+        matrix
     )
 
 
+def dataframe_rows_from_matrix(matrix, names):
+    rows = []
+    for i, actual_name in enumerate(names):
+        row = {"Actual": actual_name}
+        for j, predicted_name in enumerate(names):
+            row[predicted_name] = int(matrix[i, j])
+        rows.append(row)
+    return rows
+
+
+def read_history():
+    path = "training_history.json"
+
+    if not os.path.exists(path):
+        return None
+
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return None
+
+
 # ============================================================
-# NAVIGATION
+# MODEL ERROR CHECK
 # ============================================================
 
-pages = [
-    "🏠 Home",
-    "🔍 Disease Detection",
-    "🔥 Explainable AI",
-    "📚 Disease Information",
-    "🩺 Causes & Solutions",
-    "📦 Batch Analysis",
-    "📊 Performance",
-    "⚖️ Model Comparison"
-]
+if model is None:
+    st.error("❌ The trained model could not be loaded.")
+    st.code(model_error or "Unknown model loading error.")
+    st.info(
+        "Put explainable_cnn_model.keras in the same GitHub "
+        "folder as app.py and make sure TensorFlow is in requirements.txt."
+    )
+    st.stop()
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+st.sidebar.title("🥔 Navigation")
 
 page = st.sidebar.radio(
-    "Navigation",
-    pages
+    "Select Section",
+    [
+        "🏠 Home",
+        "🔍 Disease Detection",
+        "🔥 Explainable AI",
+        "📚 Disease Information",
+        "🩺 Causes & Solutions",
+        "📦 Batch Analysis",
+        "📊 Performance",
+        "⚖️ Model Comparison"
+    ]
 )
 
+st.sidebar.divider()
+st.sidebar.caption("Custom CNN • TensorFlow/Keras • Grad-CAM")
 
 # ============================================================
-# HOME
+# HOME - ONLY MAIN IMAGE UPLOAD
 # ============================================================
 
 if page == "🏠 Home":
 
-    st.header(
-        "📷 Upload Potato Leaf Image"
+    st.title("🥔 Potato Plant Disease Detection System")
+
+    st.markdown(
+        """
+        ### AI-powered potato leaf analysis
+
+        Upload **one image here only**. After analysis, the same
+        image and prediction are automatically available in:
+
+        **Disease Detection → Explainable AI → Disease Information
+        → Causes & Solutions**
+        """
     )
 
     uploaded_file = st.file_uploader(
-        "Choose a potato leaf image",
-        type=[
-            "jpg",
-            "jpeg",
-            "png"
-        ],
-        key="home_uploader"
+        "📷 Upload a potato leaf image",
+        type=["jpg", "jpeg", "png"],
+        key="main_uploader"
     )
 
     if uploaded_file is not None:
-
         try:
+            image = Image.open(uploaded_file).convert("RGB")
 
-            image = Image.open(
-                uploaded_file
-            ).convert("RGB")
+            with st.spinner("Analyzing the potato leaf..."):
+                predicted_class, confidence, probabilities = predict_image(image)
 
-            st.session_state.uploaded_image = (
-                image
-            )
+            st.session_state.image = image
+            st.session_state.prediction = predicted_class
+            st.session_state.confidence = confidence
+            st.session_state.probabilities = probabilities
+            st.session_state.filename = uploaded_file.name
 
-            with st.spinner(
-                "Analyzing potato leaf..."
-            ):
-
-                (
-                    predicted_class,
-                    confidence,
-                    probabilities
-                ) = get_prediction(
-                    image
-                )
-
-            st.session_state.prediction = (
-                predicted_class
-            )
-
-            st.session_state.confidence = (
-                confidence
-            )
-
-            st.session_state.probabilities = (
-                probabilities
-            )
-
-            st.success(
-                "✓ Image analyzed successfully!"
-            )
-
-            col1, col2 = st.columns(
-                2
-            )
+            col1, col2 = st.columns(2)
 
             with col1:
-
                 st.image(
                     image,
-                    caption="Uploaded Potato Leaf",
+                    caption=uploaded_file.name,
                     use_container_width=True
                 )
 
             with col2:
-
-                st.subheader(
-                    "🎯 Quick Result"
-                )
-
-                st.success(
-                    DISPLAY_NAMES[
-                        predicted_class
-                    ]
-                )
-
+                st.subheader("🎯 Detection Result")
+                st.success(DISPLAY_NAMES[predicted_class])
                 st.metric(
                     "Confidence",
                     f"{confidence * 100:.2f}%"
                 )
 
-                if predicted_class == (
-                    "Potato___healthy"
-                ):
-
-                    st.success(
-                        "🌱 The leaf appears healthy."
-                    )
-
+                if predicted_class == "Potato___healthy":
+                    st.success("✅ No strong disease pattern was detected.")
                 else:
-
-                    st.warning(
-                        "⚠️ Disease pattern detected."
-                    )
+                    st.warning("⚠️ A disease pattern was detected.")
 
             st.divider()
 
-            st.info(
-                """
-                Image uploaded successfully.
+            st.subheader("📊 All Class Probabilities")
 
-                You do NOT need to upload the image again.
+            for i, class_name in enumerate(CLASS_NAMES):
+                value = float(probabilities[i])
+                st.write(DISPLAY_NAMES[class_name])
+                st.progress(min(max(value, 0.0), 1.0))
+                st.caption(f"{value * 100:.2f}%")
 
-                Open the other sections from the sidebar.
-                The same image and prediction will be used.
-                """
+            st.success(
+                "✓ Done. You do not need to upload this image again "
+                "for the other single-image sections."
             )
 
-        except Exception as e:
+        except Exception as exc:
+            st.error("❌ Image analysis failed.")
+            st.code(str(exc))
 
-            st.error(
-                "❌ Could not process image."
-            )
+    elif st.session_state.image is not None:
+        st.info(
+            "An image is already loaded. Use the sidebar to view "
+            "the analysis, or upload another image above."
+        )
 
-            st.code(
-                str(e)
-            )
+        st.image(
+            st.session_state.image,
+            caption=st.session_state.filename or "Loaded image",
+            width=500
+        )
 
     else:
-
-        st.info(
-            "👆 Upload a potato leaf image to start."
-        )
+        st.info("👆 Upload a potato leaf image to begin.")
 
 
 # ============================================================
-# CHECK IMAGE FOR IMAGE-BASED PAGES
+# SINGLE IMAGE PAGE CHECK
 # ============================================================
 
 elif page in [
@@ -777,20 +511,11 @@ elif page in [
     "🩺 Causes & Solutions"
 ]:
 
-    if (
-        st.session_state.uploaded_image
-        is None
-    ):
-
+    if st.session_state.image is None:
         st.warning(
-            """
-            ⚠️ No image uploaded.
-
-            Please go to **Home** and upload
-            a potato leaf image first.
-            """
+            "⚠️ No image is loaded. Go to **Home** and upload "
+            "one potato leaf image first."
         )
-
         st.stop()
 
 
@@ -800,32 +525,16 @@ elif page in [
 
 if page == "🔍 Disease Detection":
 
-    st.header(
-        "🔍 Disease Detection"
-    )
+    st.title("🔍 Disease Detection")
 
-    image = (
-        st.session_state.uploaded_image
-    )
+    image = st.session_state.image
+    predicted_class = st.session_state.prediction
+    confidence = st.session_state.confidence
+    probabilities = st.session_state.probabilities
 
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    confidence = (
-        st.session_state.confidence
-    )
-
-    probabilities = (
-        st.session_state.probabilities
-    )
-
-    col1, col2 = st.columns(
-        2
-    )
+    col1, col2 = st.columns(2)
 
     with col1:
-
         st.image(
             image,
             caption="Analyzed Potato Leaf",
@@ -833,55 +542,35 @@ if page == "🔍 Disease Detection":
         )
 
     with col2:
-
-        st.subheader(
-            "Prediction"
-        )
-
-        st.success(
-            DISPLAY_NAMES[
-                predicted_class
-            ]
-        )
-
+        st.subheader("Prediction")
+        st.success(DISPLAY_NAMES[predicted_class])
         st.metric(
             "Confidence",
             f"{confidence * 100:.2f}%"
         )
 
-        st.divider()
-
-        st.subheader(
-            "Class Probabilities"
-        )
-
-        for i, class_name in enumerate(
-            CLASS_NAMES
-        ):
-
-            probability = float(
-                probabilities[i]
+        if confidence < 0.60:
+            st.warning(
+                "⚠️ Confidence is relatively low. Consider "
+                "checking the leaf under good lighting or "
+                "consulting an agricultural expert."
             )
 
-            st.write(
-                DISPLAY_NAMES[
-                    class_name
-                ]
-            )
+    st.divider()
 
-            st.progress(
-                min(
-                    max(
-                        probability,
-                        0.0
-                    ),
-                    1.0
-                )
-            )
+    st.subheader("📊 Class Probability Distribution")
 
-            st.caption(
-                f"{probability * 100:.2f}%"
-            )
+    for i, class_name in enumerate(CLASS_NAMES):
+        value = float(probabilities[i])
+
+        col_a, col_b = st.columns([4, 1])
+
+        with col_a:
+            st.write(DISPLAY_NAMES[class_name])
+            st.progress(min(max(value, 0.0), 1.0))
+
+        with col_b:
+            st.write(f"{value * 100:.2f}%")
 
 
 # ============================================================
@@ -890,90 +579,47 @@ if page == "🔍 Disease Detection":
 
 elif page == "🔥 Explainable AI":
 
-    st.header(
-        "🔥 Explainable AI - Grad-CAM"
-    )
+    st.title("🔥 Explainable AI - Grad-CAM")
 
-    image = (
-        st.session_state.uploaded_image
-    )
-
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    probabilities = (
-        st.session_state.probabilities
-    )
-
-    predicted_index = int(
-        np.argmax(
-            probabilities
-        )
-    )
+    image = st.session_state.image
+    predicted_class = st.session_state.prediction
+    probabilities = st.session_state.probabilities
+    predicted_index = int(np.argmax(probabilities))
 
     st.write(
-        """
-        Grad-CAM highlights the image regions that
-        contributed to the model's prediction.
-        """
+        "Grad-CAM highlights image regions that contributed "
+        "to the selected CNN prediction."
     )
 
     try:
-
-        with st.spinner(
-            "Generating Grad-CAM..."
-        ):
-
-            (
-                heatmap,
-                layer_name
-            ) = make_gradcam_heatmap(
+        with st.spinner("Generating Grad-CAM..."):
+            heatmap, layer_name = make_gradcam(
                 image,
                 predicted_index
             )
-
-            overlay = (
-                create_heatmap_overlay(
-                    image,
-                    heatmap
-                )
+            overlay = make_overlay(
+                image,
+                heatmap
             )
 
-        st.success(
-            "✓ Grad-CAM generated successfully."
-        )
+        st.success("✓ Grad-CAM generated successfully.")
 
         st.write(
-            f"**Prediction:** "
-            f"{DISPLAY_NAMES[predicted_class]}"
+            f"**Prediction:** {DISPLAY_NAMES[predicted_class]}"
         )
+        st.write(f"**Convolutional layer:** `{layer_name}`")
 
-        st.write(
-            f"**Grad-CAM Layer:** `{layer_name}`"
-        )
-
-        col1, col2 = st.columns(
-            2
-        )
+        col1, col2 = st.columns(2)
 
         with col1:
-
-            st.subheader(
-                "Original Image"
-            )
-
+            st.subheader("Original Image")
             st.image(
                 image,
                 use_container_width=True
             )
 
         with col2:
-
-            st.subheader(
-                "Grad-CAM Heatmap"
-            )
-
+            st.subheader("Grad-CAM")
             st.image(
                 overlay,
                 use_container_width=True
@@ -981,63 +627,26 @@ elif page == "🔥 Explainable AI":
 
         st.divider()
 
-        st.subheader(
-            "🧠 Interpretation"
-        )
+        st.subheader("🧠 What the visualization means")
 
         st.write(
             """
-            The highlighted regions indicate areas that
-            contributed more strongly to the CNN prediction.
-
-            This visualization can help determine whether
-            the model is focusing on relevant leaf regions
-            instead of unrelated background areas.
+            The brighter highlighted regions indicate areas that
+            contributed more strongly to the model's prediction.
+            This helps you inspect whether the CNN is focusing on
+            relevant leaf regions rather than unrelated background.
             """
         )
 
-        max_activation = float(
-            np.max(heatmap)
-        )
-
-        mean_activation = float(
-            np.mean(heatmap)
-        )
-
-        c1, c2 = st.columns(
-            2
-        )
-
-        with c1:
-
-            st.metric(
-                "Maximum Activation",
-                f"{max_activation:.4f}"
-            )
-
-        with c2:
-
-            st.metric(
-                "Mean Activation",
-                f"{mean_activation:.4f}"
-            )
-
-    except Exception as e:
-
-        st.error(
-            "❌ Grad-CAM could not be generated."
-        )
-
-        st.code(
-            str(e)
-        )
+    except Exception as exc:
+        st.error("❌ Grad-CAM could not be generated.")
+        st.code(str(exc))
 
         st.info(
-            """
-            The model was successfully loaded, but this
-            particular model architecture may not expose a
-            compatible convolutional layer for Grad-CAM.
-            """
+            "The prediction model can still work even when Grad-CAM "
+            "is unavailable. This usually means the saved model's "
+            "internal convolutional graph is not compatible with "
+            "the standard Grad-CAM connection."
         )
 
 
@@ -1047,80 +656,15 @@ elif page == "🔥 Explainable AI":
 
 elif page == "📚 Disease Information":
 
-    st.header(
-        "📚 Disease Information"
-    )
+    st.title("📚 Disease Information")
 
-    predicted_class = (
-        st.session_state.prediction
-    )
+    predicted_class = st.session_state.prediction
+    confidence = st.session_state.confidence
+    info = DISEASE_INFO[predicted_class]
 
-    info = DISEASE_INFO[
-        predicted_class
-    ]
+    st.subheader(f"🌿 {info['name']}")
 
-    st.subheader(
-        f"🌿 {info['name']}"
-    )
-
-    st.write(
-        info["description"]
-    )
-
-    st.divider()
-
-    st.subheader(
-        "🔎 Common Symptoms"
-    )
-
-    for symptom in info[
-        "symptoms"
-    ]:
-
-        st.write(
-            f"• {symptom}"
-        )
-
-    st.divider()
-
-    st.subheader(
-        "🦠 Possible Causes"
-    )
-
-    for cause in info[
-        "causes"
-    ]:
-
-        st.write(
-            f"• {cause}"
-        )
-
-
-# ============================================================
-# CAUSES & SOLUTIONS
-# ============================================================
-
-elif page == "🩺 Causes & Solutions":
-
-    st.header(
-        "🩺 Why Does This Problem Occur?"
-    )
-
-    predicted_class = (
-        st.session_state.prediction
-    )
-
-    confidence = (
-        st.session_state.confidence
-    )
-
-    info = DISEASE_INFO[
-        predicted_class
-    ]
-
-    st.subheader(
-        f"Detected Condition: {info['name']}"
-    )
+    st.write(info["description"])
 
     st.metric(
         "Model Confidence",
@@ -1129,52 +673,61 @@ elif page == "🩺 Causes & Solutions":
 
     st.divider()
 
-    st.subheader(
-        "❓ Why Can This Problem Occur?"
-    )
+    st.subheader("🔎 Symptoms")
 
-    for cause in info[
-        "causes"
-    ]:
-
-        st.write(
-            f"• {cause}"
-        )
+    for item in info["symptoms"]:
+        st.write(f"• {item}")
 
     st.divider()
 
+    st.subheader("🦠 Possible Causes")
+
+    for item in info["causes"]:
+        st.write(f"• {item}")
+
+
+# ============================================================
+# CAUSES & SOLUTIONS
+# ============================================================
+
+elif page == "🩺 Causes & Solutions":
+
+    st.title("🩺 Why Did This Problem Occur?")
+
+    predicted_class = st.session_state.prediction
+    info = DISEASE_INFO[predicted_class]
+
     st.subheader(
-        "⚡ What Should Be Done?"
+        f"Detected condition: {info['name']}"
     )
-
-    for solution in info[
-        "solution"
-    ]:
-
-        st.write(
-            f"✅ {solution}"
-        )
 
     st.divider()
 
-    st.subheader(
-        "🛡️ Prevention"
-    )
+    st.subheader("❓ Possible Reasons")
 
-    for prevention in info[
-        "prevention"
-    ]:
+    for item in info["causes"]:
+        st.write(f"• {item}")
 
-        st.write(
-            f"• {prevention}"
-        )
+    st.divider()
+
+    st.subheader("⚡ What Can Be Done First?")
+
+    for item in info["actions"]:
+        st.write(f"✅ {item}")
+
+    st.divider()
+
+    st.subheader("🛡️ Prevention")
+
+    for item in info["prevention"]:
+        st.write(f"• {item}")
 
     st.warning(
         """
-        ⚠️ This application provides AI-based preliminary
-        classification and general information. For serious
-        crop disease problems, consult a qualified
-        agricultural professional.
+        ⚠️ The application provides AI-based preliminary
+        classification and general management information.
+        For serious or rapidly spreading crop disease,
+        consult a qualified agricultural professional.
         """
     )
 
@@ -1185,146 +738,69 @@ elif page == "🩺 Causes & Solutions":
 
 elif page == "📦 Batch Analysis":
 
-    st.header(
-        "📦 Batch Analysis"
-    )
+    st.title("📦 Batch Analysis")
 
     st.write(
-        """
-        Upload multiple potato leaf images and analyze
-        them together.
-        """
+        "This section is intentionally separate because batch "
+        "analysis accepts multiple images at once."
     )
 
     files = st.file_uploader(
-        "Upload multiple leaf images",
-        type=[
-            "jpg",
-            "jpeg",
-            "png"
-        ],
+        "Upload multiple potato leaf images",
+        type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key="batch_uploader"
     )
 
     if files:
+        rows = []
+        progress = st.progress(0)
 
-        results = []
-
-        progress = st.progress(
-            0
-        )
-
-        total = len(files)
-
-        for index, file in enumerate(
-            files
-        ):
-
+        for index, file in enumerate(files):
             try:
+                image = Image.open(file).convert("RGB")
+                predicted_class, confidence, _ = predict_image(image)
 
-                image = Image.open(
-                    file
-                ).convert("RGB")
+                rows.append({
+                    "Image": file.name,
+                    "Prediction": DISPLAY_NAMES[predicted_class],
+                    "Confidence": f"{confidence * 100:.2f}%"
+                })
 
-                (
-                    predicted_class,
-                    confidence,
-                    _
-                ) = get_prediction(
-                    image
-                )
-
-                results.append(
-                    {
-                        "Image":
-                            file.name,
-
-                        "Prediction":
-                            DISPLAY_NAMES[
-                                predicted_class
-                            ],
-
-                        "Confidence":
-                            f"{confidence * 100:.2f}%"
-                    }
-                )
-
-            except Exception as e:
-
-                results.append(
-                    {
-                        "Image":
-                            file.name,
-
-                        "Prediction":
-                            "Error",
-
-                        "Confidence":
-                            "-"
-                    }
-                )
+            except Exception as exc:
+                rows.append({
+                    "Image": file.name,
+                    "Prediction": "Error",
+                    "Confidence": str(exc)
+                })
 
             progress.progress(
-                int(
-                    ((index + 1) / total)
-                    * 100
-                )
+                int(((index + 1) / len(files)) * 100)
             )
 
-        st.success(
-            f"✓ {total} images analyzed."
+        st.success(f"✓ {len(files)} images analyzed.")
+        st.dataframe(rows, use_container_width=True)
+
+        healthy = sum(
+            1 for row in rows
+            if row["Prediction"] == "Healthy"
         )
 
-        st.dataframe(
-            results,
-            use_container_width=True
+        disease = sum(
+            1 for row in rows
+            if row["Prediction"] in ["Early Blight", "Late Blight"]
         )
 
-        # Summary
-
-        st.subheader(
-            "📊 Batch Summary"
-        )
-
-        disease_count = 0
-        healthy_count = 0
-
-        for result in results:
-
-            prediction = result[
-                "Prediction"
-            ]
-
-            if prediction == "Healthy":
-
-                healthy_count += 1
-
-            elif prediction != "Error":
-
-                disease_count += 1
-
-        c1, c2 = st.columns(
-            2
-        )
+        c1, c2 = st.columns(2)
 
         with c1:
-
-            st.success(
-                f"Healthy: {healthy_count}"
-            )
+            st.success(f"Healthy: {healthy}")
 
         with c2:
-
-            st.warning(
-                f"Disease Detected: {disease_count}"
-            )
+            st.warning(f"Disease detected: {disease}")
 
     else:
-
-        st.info(
-            "Upload multiple images to start batch analysis."
-        )
+        st.info("Upload multiple images to start batch analysis.")
 
 
 # ============================================================
@@ -1333,36 +809,45 @@ elif page == "📦 Batch Analysis":
 
 elif page == "📊 Performance":
 
-    st.header(
-        "📊 Model Performance"
-    )
+    st.title("📊 Model Performance")
 
     st.write(
         """
-        This section evaluates the trained Custom CNN
-        using the test dataset available in the repository.
+        This section shows real evaluation values only when the
+        test dataset and/or training history are available in
+        the GitHub repository. The app does not invent metrics.
         """
     )
 
-    TEST_DIR = "test"
-
     # --------------------------------------------------------
-    # TEST DATASET CHECK
+    # TEST DATASET
     # --------------------------------------------------------
 
-    if not os.path.exists(
-        TEST_DIR
-    ):
+    test_candidates = [
+        "test",
+        "Test",
+        "dataset/test",
+        "data/test"
+    ]
+
+    test_dir = None
+
+    for candidate in test_candidates:
+        if os.path.isdir(candidate):
+            test_dir = candidate
+            break
+
+    if test_dir is None:
 
         st.warning(
             """
-            ⚠️ Test dataset folder was not found.
+            ⚠️ A test dataset folder was not found.
 
-            To calculate actual Accuracy, Precision, Recall,
-            F1 Score and Confusion Matrix, add a `test` folder
-            to your GitHub repository.
+            Therefore Accuracy, Precision, Recall, F1 Score and
+            Confusion Matrix cannot be calculated from the
+            `.keras` model file alone.
 
-            Example:
+            Add a folder such as:
 
             test/
             ├── Potato___Early_blight/
@@ -1374,47 +859,25 @@ elif page == "📊 Performance":
     else:
 
         try:
-
-            test_dataset = (
-                tf.keras.utils.image_dataset_from_directory(
-
-                    TEST_DIR,
-
-                    image_size=IMG_SIZE,
-
-                    batch_size=32,
-
-                    shuffle=False
-                )
-            )
-
-            dataset_classes = (
-                test_dataset.class_names
+            test_ds = tf.keras.utils.image_dataset_from_directory(
+                test_dir,
+                image_size=IMG_SIZE,
+                batch_size=32,
+                shuffle=False,
+                class_names=CLASS_NAMES
             )
 
             y_true = []
             y_pred = []
 
-            start_time = time.time()
+            start = time.time()
 
-            for images, labels in (
-                test_dataset
-            ):
+            for images, labels in test_ds:
+                images = tf.cast(images, tf.float32) / 255.0
 
-                predictions = model.predict(
+                outputs = model.predict(
                     images,
                     verbose=0
-                )
-
-                predictions = np.asarray(
-                    predictions
-                )
-
-                predicted_labels = (
-                    np.argmax(
-                        predictions,
-                        axis=1
-                    )
                 )
 
                 y_true.extend(
@@ -1422,308 +885,162 @@ elif page == "📊 Performance":
                 )
 
                 y_pred.extend(
-                    predicted_labels.tolist()
+                    np.argmax(outputs, axis=1).tolist()
                 )
 
-            inference_time = (
-                time.time()
-                - start_time
-            )
+            elapsed = time.time() - start
 
             (
                 accuracy,
                 precision,
                 recall,
                 f1,
-                confusion
+                matrix
             ) = calculate_metrics(
-
                 y_true,
-
                 y_pred,
-
-                len(dataset_classes)
+                len(CLASS_NAMES)
             )
 
-            # ------------------------------------------------
-            # Metrics
-            # ------------------------------------------------
+            st.subheader("🎯 Evaluation Components")
 
-            st.subheader(
-                "🎯 Evaluation Components"
-            )
-
-            c1, c2, c3, c4 = st.columns(
-                4
-            )
+            c1, c2, c3, c4 = st.columns(4)
 
             with c1:
-
                 st.metric(
                     "Accuracy",
                     f"{accuracy * 100:.2f}%"
                 )
 
             with c2:
-
                 st.metric(
                     "Precision",
                     f"{precision * 100:.2f}%"
                 )
 
             with c3:
-
                 st.metric(
                     "Recall",
                     f"{recall * 100:.2f}%"
                 )
 
             with c4:
-
                 st.metric(
                     "F1 Score",
                     f"{f1 * 100:.2f}%"
                 )
 
-            # ------------------------------------------------
-            # Confusion Matrix
-            # ------------------------------------------------
-
             st.divider()
 
-            st.subheader(
-                "🔲 Confusion Matrix"
-            )
-
-            matrix_rows = []
-
-            for i in range(
-                len(dataset_classes)
-            ):
-
-                row = {
-                    "Actual":
-                        dataset_classes[i]
-                }
-
-                for j in range(
-                    len(dataset_classes)
-                ):
-
-                    row[
-                        dataset_classes[j]
-                    ] = int(
-                        confusion[i, j]
-                    )
-
-                matrix_rows.append(
-                    row
-                )
+            st.subheader("🔲 Confusion Matrix")
 
             st.dataframe(
-                matrix_rows,
+                dataframe_rows_from_matrix(
+                    matrix,
+                    [DISPLAY_NAMES[x] for x in CLASS_NAMES]
+                ),
                 use_container_width=True
             )
 
-            # ------------------------------------------------
-            # Correct / Incorrect
-            # ------------------------------------------------
+            st.divider()
 
             correct = int(
                 np.sum(
-                    np.asarray(y_true)
-                    ==
+                    np.asarray(y_true) ==
                     np.asarray(y_pred)
                 )
             )
 
-            incorrect = int(
-                len(y_true)
-                - correct
-            )
+            incorrect = int(len(y_true) - correct)
 
-            c1, c2 = st.columns(
-                2
-            )
+            c1, c2, c3 = st.columns(3)
 
             with c1:
-
-                st.success(
-                    f"✓ Correct Predictions: {correct}"
-                )
-
-            with c2:
-
-                st.error(
-                    f"✗ Incorrect Predictions: {incorrect}"
-                )
-
-            # ------------------------------------------------
-            # Efficiency
-            # ------------------------------------------------
-
-            st.divider()
-
-            st.subheader(
-                "⚡ Efficiency"
-            )
-
-            c1, c2 = st.columns(
-                2
-            )
-
-            with c1:
-
                 st.metric(
                     "Test Images",
                     len(y_true)
                 )
 
             with c2:
-
                 st.metric(
-                    "Evaluation Time",
-                    f"{inference_time:.2f} sec"
+                    "Correct",
+                    correct
                 )
 
-        except Exception as e:
+            with c3:
+                st.metric(
+                    "Evaluation Time",
+                    f"{elapsed:.2f} sec"
+                )
 
-            st.error(
-                "❌ Test dataset evaluation failed."
-            )
-
-            st.code(
-                str(e)
-            )
+        except Exception as exc:
+            st.error("❌ Test-set evaluation failed.")
+            st.code(str(exc))
 
     # --------------------------------------------------------
     # TRAINING HISTORY
     # --------------------------------------------------------
 
     st.divider()
+    st.subheader("📈 Training / Validation Performance")
 
-    st.subheader(
-        "📈 Training / Validation Performance"
-    )
+    history = read_history()
 
-    HISTORY_PATH = (
-        "training_history.json"
-    )
-
-    if not os.path.exists(
-        HISTORY_PATH
-    ):
+    if history is None:
 
         st.info(
             """
             `training_history.json` was not found.
 
-            Therefore Training/Validation Accuracy and Loss
-            cannot be reconstructed from the `.keras` model
-            alone.
+            The `.keras` model does not reliably contain the
+            complete epoch-by-epoch training history.
 
-            Export the training history from Kaggle and place
-            `training_history.json` beside `app.py`.
+            If you want Training Accuracy, Validation Accuracy,
+            Training Loss and Validation Loss here, export the
+            Kaggle `history.history` dictionary as
+            `training_history.json` and put it beside app.py.
             """
         )
 
     else:
 
         try:
+            acc_key = (
+                "accuracy"
+                if "accuracy" in history
+                else "acc"
+                if "acc" in history
+                else None
+            )
 
-            with open(
-                HISTORY_PATH,
-                "r"
-            ) as f:
+            val_acc_key = (
+                "val_accuracy"
+                if "val_accuracy" in history
+                else "val_acc"
+                if "val_acc" in history
+                else None
+            )
 
-                history = json.load(
-                    f
-                )
+            loss_key = "loss" if "loss" in history else None
+            val_loss_key = (
+                "val_loss"
+                if "val_loss" in history
+                else None
+            )
 
-            accuracy_key = None
-            validation_accuracy_key = None
-            loss_key = None
-            validation_loss_key = None
+            if acc_key and val_acc_key:
+                chart_rows = []
 
-            possible_accuracy_keys = [
-                "accuracy",
-                "acc"
-            ]
+                for i in range(len(history[acc_key])):
+                    chart_rows.append({
+                        "Epoch": i + 1,
+                        "Training Accuracy": history[acc_key][i],
+                        "Validation Accuracy": history[val_acc_key][i]
+                    })
 
-            possible_val_accuracy_keys = [
-                "val_accuracy",
-                "val_acc"
-            ]
-
-            for key in possible_accuracy_keys:
-
-                if key in history:
-
-                    accuracy_key = key
-
-                    break
-
-            for key in possible_val_accuracy_keys:
-
-                if key in history:
-
-                    validation_accuracy_key = key
-
-                    break
-
-            if "loss" in history:
-
-                loss_key = "loss"
-
-            if "val_loss" in history:
-
-                validation_loss_key = "val_loss"
-
-            # ----------------------------------------------
-            # Accuracy
-            # ----------------------------------------------
-
-            if (
-                accuracy_key is not None
-                and
-                validation_accuracy_key is not None
-            ):
-
-                accuracy_data = []
-
-                total_epochs = len(
-                    history[
-                        accuracy_key
-                    ]
-                )
-
-                for epoch in range(
-                    total_epochs
-                ):
-
-                    accuracy_data.append(
-                        {
-                            "Epoch":
-                                epoch + 1,
-
-                            "Training Accuracy":
-                                history[
-                                    accuracy_key
-                                ][epoch],
-
-                            "Validation Accuracy":
-                                history[
-                                    validation_accuracy_key
-                                ][epoch]
-                        }
-                    )
-
-                st.write(
-                    "Training vs Validation Accuracy"
-                )
-
+                st.write("Training vs Validation Accuracy")
                 st.line_chart(
-                    accuracy_data,
+                    chart_rows,
                     x="Epoch",
                     y=[
                         "Training Accuracy",
@@ -1731,51 +1048,19 @@ elif page == "📊 Performance":
                     ]
                 )
 
-            # ----------------------------------------------
-            # Loss
-            # ----------------------------------------------
+            if loss_key and val_loss_key:
+                loss_rows = []
 
-            if (
-                loss_key is not None
-                and
-                validation_loss_key is not None
-            ):
+                for i in range(len(history[loss_key])):
+                    loss_rows.append({
+                        "Epoch": i + 1,
+                        "Training Loss": history[loss_key][i],
+                        "Validation Loss": history[val_loss_key][i]
+                    })
 
-                loss_data = []
-
-                total_epochs = len(
-                    history[
-                        loss_key
-                    ]
-                )
-
-                for epoch in range(
-                    total_epochs
-                ):
-
-                    loss_data.append(
-                        {
-                            "Epoch":
-                                epoch + 1,
-
-                            "Training Loss":
-                                history[
-                                    loss_key
-                                ][epoch],
-
-                            "Validation Loss":
-                                history[
-                                    validation_loss_key
-                                ][epoch]
-                        }
-                    )
-
-                st.write(
-                    "Training vs Validation Loss"
-                )
-
+                st.write("Training vs Validation Loss")
                 st.line_chart(
-                    loss_data,
+                    loss_rows,
                     x="Epoch",
                     y=[
                         "Training Loss",
@@ -1783,15 +1068,9 @@ elif page == "📊 Performance":
                     ]
                 )
 
-        except Exception as e:
-
-            st.error(
-                "❌ Training history could not be loaded."
-            )
-
-            st.code(
-                str(e)
-            )
+        except Exception as exc:
+            st.error("❌ Training history could not be displayed.")
+            st.code(str(exc))
 
 
 # ============================================================
@@ -1800,132 +1079,84 @@ elif page == "📊 Performance":
 
 elif page == "⚖️ Model Comparison":
 
-    st.header(
-        "⚖️ Model Comparison"
-    )
+    st.title("⚖️ Model Comparison")
 
     st.write(
         """
-        Comparison of the three model approaches used in
-        the research project.
+        Comparison of the models used in the project.
+        Only verified values should be entered for Accuracy,
+        Loss and Parameters.
         """
     )
 
-    comparison = [
+    st.subheader("Architecture Comparison")
 
+    comparison_rows = [
         {
-            "Model":
-                "Custom CNN",
-
-            "Architecture":
-                "3 Conv Blocks + GAP + Dense(256) + Dropout",
-
-            "Type":
-                "Proposed Lightweight CNN",
-
-            "Input":
-                "224 × 224 × 3",
-
-            "Output":
-                "3 Classes"
+            "Model": "Custom CNN",
+            "Type": "Proposed Lightweight CNN",
+            "Input": "224 × 224 × 3",
+            "Classes": "3",
+            "Main Goal": "Lightweight disease classification"
         },
-
         {
-            "Model":
-                "ResNet50",
-
-            "Architecture":
-                "Pre-trained ResNet50 + Custom Head",
-
-            "Type":
-                "Transfer Learning",
-
-            "Input":
-                "224 × 224 × 3",
-
-            "Output":
-                "3 Classes"
+            "Model": "ResNet50",
+            "Type": "Transfer Learning",
+            "Input": "224 × 224 × 3",
+            "Classes": "3",
+            "Main Goal": "Baseline comparison"
         },
-
         {
-            "Model":
-                "MobileNetV2",
-
-            "Architecture":
-                "Pre-trained MobileNetV2 + Custom Head",
-
-            "Type":
-                "Transfer Learning",
-
-            "Input":
-                "224 × 224 × 3",
-
-            "Output":
-                "3 Classes"
+            "Model": "MobileNetV2",
+            "Type": "Transfer Learning",
+            "Input": "224 × 224 × 3",
+            "Classes": "3",
+            "Main Goal": "Lightweight transfer-learning comparison"
         }
     ]
 
     st.dataframe(
-        comparison,
+        comparison_rows,
         use_container_width=True
     )
 
     st.divider()
 
-    st.subheader(
-        "🧠 Custom CNN Architecture"
-    )
+    st.subheader("📌 Experimental Results")
 
-    st.write(
-        """
-        The proposed Custom CNN is designed as a
-        lightweight architecture using convolutional blocks,
-        Global Average Pooling, Dense(256), Dropout(0.5)
-        and a 3-class softmax output.
-        """
-    )
+    result_file = "model_comparison.json"
 
-    st.subheader(
-        "🔄 ResNet50"
-    )
+    if os.path.exists(result_file):
 
-    st.write(
-        """
-        ResNet50 is used as a transfer-learning baseline
-        with a custom classification head.
-        """
-    )
+        try:
+            with open(result_file, "r", encoding="utf-8") as file:
+                comparison_data = json.load(file)
 
-    st.subheader(
-        "📱 MobileNetV2"
-    )
+            st.dataframe(
+                comparison_data,
+                use_container_width=True
+            )
 
-    st.write(
-        """
-        MobileNetV2 is used as a lightweight transfer-learning
-        comparison model.
-        """
-    )
+        except Exception as exc:
+            st.error("Could not read model_comparison.json.")
+            st.code(str(exc))
 
-    st.info(
-        """
-        Actual Accuracy, Loss, Parameter Count and inference
-        time should be loaded from the recorded experiment
-        results. This app does not invent those values.
-        """
-    )
+    else:
 
+        st.info(
+            """
+            `model_comparison.json` was not found.
+
+            I am intentionally not putting guessed Accuracy,
+            Test Loss or Parameter values here. Add the actual
+            values from your Kaggle experiments to display them.
+            """
+        )
 
 # ============================================================
 # FOOTER
 # ============================================================
 
 st.sidebar.divider()
-
-st.sidebar.caption(
-    "Potato Plant Disease Detection"
-)
-
-st.sidebar.caption(
-    "Custom CNN • TensorFlow/Keras • Grad-CAM"
-)
+st.sidebar.caption("Potato Plant Disease Detection")
+st.sidebar.caption("Custom CNN • Explainable AI • Grad-CAM")
