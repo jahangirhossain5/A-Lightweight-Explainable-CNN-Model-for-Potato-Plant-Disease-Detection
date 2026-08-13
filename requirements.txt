@@ -1,4 +1,8 @@
 streamlit
-tensorflow==2.20.0
+tensorflow
 numpy
 pillow
+pandas
+matplotlib
+scikit-learn
+reportlab
