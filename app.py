@@ -5,6 +5,21 @@ from PIL import Image
 import os
 import json
 import time
+import csv
+from io import BytesIO
+from datetime import datetime
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    Image as ReportLabImage, PageBreak
+)
+from reportlab.lib.utils import ImageReader
 
 # ============================================================
 # CONFIGURATION
@@ -18,6 +33,11 @@ st.set_page_config(
 
 MODEL_PATH = "explainable_cnn_model.keras"
 IMG_SIZE = (224, 224)
+
+HISTORY_FILE = "prediction_history.csv"
+LOW_CONFIDENCE_THRESHOLD = 0.60
+SEVERITY_MILD_THRESHOLD = 0.15
+SEVERITY_MODERATE_THRESHOLD = 0.35
 
 CLASS_NAMES = [
     "Potato___Early_blight",
@@ -368,6 +388,305 @@ def read_history():
         return None
 
 
+
+# ============================================================
+# ADDITIONAL FEATURES
+# ============================================================
+
+def get_top_predictions(probabilities, top_n=3):
+    probabilities = np.asarray(probabilities, dtype=np.float32).reshape(-1)
+    order = np.argsort(probabilities)[::-1][:min(top_n, len(probabilities))]
+    return [
+        (CLASS_NAMES[int(i)], float(probabilities[int(i)]))
+        for i in order
+    ]
+
+
+def estimate_attention_severity(heatmap):
+    """
+    This is an approximate Grad-CAM attention estimate, NOT a
+    medically/agronomically validated percentage of infected tissue.
+    It measures the fraction of highly activated Grad-CAM pixels.
+    """
+    heatmap = np.asarray(heatmap, dtype=np.float32)
+    if heatmap.size == 0:
+        return 0.0, "Unknown"
+
+    normalized = np.clip(heatmap, 0.0, 1.0)
+    active_ratio = float(np.mean(normalized >= 0.55))
+
+    if active_ratio < SEVERITY_MILD_THRESHOLD:
+        level = "Mild"
+    elif active_ratio < SEVERITY_MODERATE_THRESHOLD:
+        level = "Moderate"
+    else:
+        level = "Severe"
+
+    return active_ratio, level
+
+
+def append_prediction_history(filename, prediction, confidence, probabilities):
+    file_exists = os.path.exists(HISTORY_FILE)
+
+    row = {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Image": filename or "Unknown",
+        "Prediction": DISPLAY_NAMES.get(prediction, prediction),
+        "Confidence": round(float(confidence) * 100, 2),
+        "Early Blight": round(float(probabilities[0]) * 100, 2),
+        "Late Blight": round(float(probabilities[1]) * 100, 2),
+        "Healthy": round(float(probabilities[2]) * 100, 2),
+    }
+
+    with open(HISTORY_FILE, "a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=list(row.keys()))
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def read_prediction_history():
+    if not os.path.exists(HISTORY_FILE):
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(HISTORY_FILE)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def make_result_dataframe():
+    probabilities = st.session_state.probabilities
+    prediction = st.session_state.prediction
+    confidence = st.session_state.confidence
+    filename = st.session_state.filename
+
+    if probabilities is None or prediction is None:
+        return pd.DataFrame()
+
+    return pd.DataFrame([{
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Image": filename or "Unknown",
+        "Prediction": DISPLAY_NAMES.get(prediction, prediction),
+        "Confidence (%)": round(float(confidence) * 100, 2),
+        "Early Blight (%)": round(float(probabilities[0]) * 100, 2),
+        "Late Blight (%)": round(float(probabilities[1]) * 100, 2),
+        "Healthy (%)": round(float(probabilities[2]) * 100, 2),
+    }])
+
+
+def create_pdf_report():
+    if st.session_state.image is None:
+        raise ValueError("No image is currently loaded.")
+
+    image = st.session_state.image
+    prediction = st.session_state.prediction
+    confidence = float(st.session_state.confidence)
+    probabilities = np.asarray(st.session_state.probabilities)
+    info = DISEASE_INFO[prediction]
+
+    heatmap, layer_name = make_gradcam(
+        image,
+        int(np.argmax(probabilities))
+    )
+    overlay = make_overlay(image, heatmap)
+
+    severity_ratio, severity_level = estimate_attention_severity(heatmap)
+
+    pdf_buffer = BytesIO()
+    document = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    heading_style = styles["Heading2"]
+    normal_style = styles["BodyText"]
+
+    story = []
+
+    story.append(Paragraph(
+        "Potato Plant Disease Detection Report",
+        title_style
+    ))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph(
+        f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        normal_style
+    ))
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph(
+        f"<b>Prediction:</b> {DISPLAY_NAMES[prediction]}",
+        heading_style
+    ))
+    story.append(Paragraph(
+        f"<b>Confidence:</b> {confidence * 100:.2f}%",
+        normal_style
+    ))
+    story.append(Paragraph(
+        f"<b>Grad-CAM layer:</b> {layer_name}",
+        normal_style
+    ))
+    story.append(Paragraph(
+        f"<b>Attention severity estimate:</b> {severity_level} "
+        f"({severity_ratio * 100:.2f}% highly activated area)",
+        normal_style
+    ))
+    story.append(Spacer(1, 12))
+
+    original_buffer = BytesIO()
+    image.save(original_buffer, format="PNG")
+    original_buffer.seek(0)
+
+    overlay_buffer = BytesIO()
+    overlay.save(overlay_buffer, format="PNG")
+    overlay_buffer.seek(0)
+
+    image_table = Table([
+        [
+            ReportLabImage(original_buffer, width=3.1*inch, height=3.1*inch),
+            ReportLabImage(overlay_buffer, width=3.1*inch, height=3.1*inch)
+        ]
+    ], colWidths=[3.2*inch, 3.2*inch])
+
+    image_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER")
+    ]))
+
+    story.append(image_table)
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph(
+        "Class Probability Distribution",
+        heading_style
+    ))
+
+    probability_rows = [["Class", "Probability"]]
+    for class_name, value in get_top_predictions(probabilities, 3):
+        probability_rows.append([
+            DISPLAY_NAMES[class_name],
+            f"{value * 100:.2f}%"
+        ])
+
+    probability_table = Table(
+        probability_rows,
+        colWidths=[4.0*inch, 2.0*inch]
+    )
+    probability_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 1), (1, -1), "RIGHT")
+    ]))
+    story.append(probability_table)
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("Description", heading_style))
+    story.append(Paragraph(info["description"], normal_style))
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph("Symptoms", heading_style))
+    for item in info["symptoms"]:
+        story.append(Paragraph(f"• {item}", normal_style))
+
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("Possible Causes", heading_style))
+    for item in info["causes"]:
+        story.append(Paragraph(f"• {item}", normal_style))
+
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("Recommended Actions", heading_style))
+    for item in info["actions"]:
+        story.append(Paragraph(f"• {item}", normal_style))
+
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("Prevention", heading_style))
+    for item in info["prevention"]:
+        story.append(Paragraph(f"• {item}", normal_style))
+
+    story.append(Spacer(1, 14))
+    story.append(Paragraph(
+        "Disclaimer: This report provides AI-based preliminary "
+        "classification and general information. The Grad-CAM "
+        "attention severity is an experimental visualization metric, "
+        "not a scientifically validated disease-severity percentage. "
+        "For serious or rapidly spreading crop disease, consult a "
+        "qualified agricultural professional.",
+        normal_style
+    ))
+
+    document.build(story)
+    pdf_buffer.seek(0)
+    return pdf_buffer.getvalue()
+
+
+def get_test_directory():
+    test_candidates = [
+        "test",
+        "Test",
+        "dataset/test",
+        "data/test"
+    ]
+
+    for candidate in test_candidates:
+        if os.path.isdir(candidate):
+            return candidate
+
+    return None
+
+
+def load_test_predictions():
+    test_dir = get_test_directory()
+
+    if test_dir is None:
+        raise FileNotFoundError(
+            "Test dataset folder not found. Expected one of: "
+            "test, Test, dataset/test, data/test."
+        )
+
+    test_ds = tf.keras.utils.image_dataset_from_directory(
+        test_dir,
+        image_size=IMG_SIZE,
+        batch_size=32,
+        shuffle=False,
+        class_names=CLASS_NAMES
+    )
+
+    y_true = []
+    y_pred = []
+    y_prob = []
+
+    for images, labels in test_ds:
+        images = tf.cast(images, tf.float32) / 255.0
+        outputs = model.predict(images, verbose=0)
+        outputs = np.asarray(outputs)
+
+        if outputs.ndim != 2 or outputs.shape[1] != len(CLASS_NAMES):
+            raise ValueError(
+                f"Unexpected model output shape: {outputs.shape}"
+            )
+
+        y_true.extend(labels.numpy().tolist())
+        y_pred.extend(np.argmax(outputs, axis=1).tolist())
+        y_prob.extend(outputs.tolist())
+
+    return (
+        np.asarray(y_true, dtype=np.int64),
+        np.asarray(y_pred, dtype=np.int64),
+        np.asarray(y_prob, dtype=np.float32)
+    )
+
+
 # ============================================================
 # MODEL ERROR CHECK
 # ============================================================
@@ -397,12 +716,16 @@ page = st.sidebar.radio(
         "🩺 Causes & Solutions",
         "📦 Batch Analysis",
         "📊 Performance",
+        "📈 ROC-AUC",
+        "📜 Prediction History",
+        "📄 PDF Report",
         "⚖️ Model Comparison"
     ]
 )
 
 st.sidebar.divider()
 st.sidebar.caption("Custom CNN • TensorFlow/Keras • Grad-CAM")
+st.sidebar.caption("PDF • ROC-AUC • History • Batch Analysis")
 
 # ============================================================
 # HOME - ONLY MAIN IMAGE UPLOAD
@@ -424,15 +747,22 @@ if page == "🏠 Home":
         """
     )
 
-    uploaded_file = st.file_uploader(
+    selected_file = st.file_uploader(
         "📷 Upload a potato leaf image",
         type=["jpg", "jpeg", "png"],
         key="main_uploader"
     )
 
-    if uploaded_file is not None:
+    camera_file = st.camera_input(
+        "📷 Or take a potato leaf photo with your camera",
+        key="main_camera"
+    )
+
+    selected_file = selected_file if selected_file is not None else camera_file
+
+    if selected_file is not None:
         try:
-            image = Image.open(uploaded_file).convert("RGB")
+            image = Image.open(selected_file).convert("RGB")
 
             with st.spinner("Analyzing the potato leaf..."):
                 predicted_class, confidence, probabilities = predict_image(image)
@@ -441,14 +771,14 @@ if page == "🏠 Home":
             st.session_state.prediction = predicted_class
             st.session_state.confidence = confidence
             st.session_state.probabilities = probabilities
-            st.session_state.filename = uploaded_file.name
+            st.session_state.filename = selected_file.name
 
             col1, col2 = st.columns(2)
 
             with col1:
                 st.image(
                     image,
-                    caption=uploaded_file.name,
+                    caption=selected_file.name,
                     use_container_width=True
                 )
 
@@ -549,7 +879,7 @@ if page == "🔍 Disease Detection":
             f"{confidence * 100:.2f}%"
         )
 
-        if confidence < 0.60:
+        if confidence < LOW_CONFIDENCE_THRESHOLD:
             st.warning(
                 "⚠️ Confidence is relatively low. Consider "
                 "checking the leaf under good lighting or "
@@ -603,6 +933,19 @@ elif page == "🔥 Explainable AI":
             )
 
         st.success("✓ Grad-CAM generated successfully.")
+
+        severity_ratio, severity_level = estimate_attention_severity(heatmap)
+
+        st.subheader("🗺️ Experimental Attention Severity")
+        st.metric("Attention Level", severity_level)
+        st.write(
+            f"Highly activated Grad-CAM area: "
+            f"**{severity_ratio * 100:.2f}%**"
+        )
+        st.caption(
+            "This is an experimental Grad-CAM attention estimate, "
+            "not a validated percentage of infected leaf tissue."
+        )
 
         st.write(
             f"**Prediction:** {DISPLAY_NAMES[predicted_class]}"
@@ -781,6 +1124,14 @@ elif page == "📦 Batch Analysis":
         st.success(f"✓ {len(files)} images analyzed.")
         st.dataframe(rows, use_container_width=True)
 
+        batch_df = pd.DataFrame(rows)
+        st.download_button(
+            "⬇️ Download Batch Analysis CSV",
+            data=batch_df.to_csv(index=False).encode("utf-8"),
+            file_name="potato_batch_analysis.csv",
+            mime="text/csv"
+        )
+
         healthy = sum(
             1 for row in rows
             if row["Prediction"] == "Healthy"
@@ -823,19 +1174,7 @@ elif page == "📊 Performance":
     # TEST DATASET
     # --------------------------------------------------------
 
-    test_candidates = [
-        "test",
-        "Test",
-        "dataset/test",
-        "data/test"
-    ]
-
-    test_dir = None
-
-    for candidate in test_candidates:
-        if os.path.isdir(candidate):
-            test_dir = candidate
-            break
+    test_dir = get_test_directory()
 
     if test_dir is None:
 
@@ -843,9 +1182,9 @@ elif page == "📊 Performance":
             """
             ⚠️ A test dataset folder was not found.
 
-            Therefore Accuracy, Precision, Recall, F1 Score and
-            Confusion Matrix cannot be calculated from the
-            `.keras` model file alone.
+            Therefore Accuracy, Precision, Recall, F1 Score,
+            Confusion Matrix and ROC-AUC cannot be calculated
+            automatically.
 
             Add a folder such as:
 
@@ -859,34 +1198,9 @@ elif page == "📊 Performance":
     else:
 
         try:
-            test_ds = tf.keras.utils.image_dataset_from_directory(
-                test_dir,
-                image_size=IMG_SIZE,
-                batch_size=32,
-                shuffle=False,
-                class_names=CLASS_NAMES
-            )
-
-            y_true = []
-            y_pred = []
-
             start = time.time()
 
-            for images, labels in test_ds:
-                images = tf.cast(images, tf.float32) / 255.0
-
-                outputs = model.predict(
-                    images,
-                    verbose=0
-                )
-
-                y_true.extend(
-                    labels.numpy().tolist()
-                )
-
-                y_pred.extend(
-                    np.argmax(outputs, axis=1).tolist()
-                )
+            y_true, y_pred, y_prob = load_test_predictions()
 
             elapsed = time.time() - start
 
@@ -907,71 +1221,68 @@ elif page == "📊 Performance":
             c1, c2, c3, c4 = st.columns(4)
 
             with c1:
-                st.metric(
-                    "Accuracy",
-                    f"{accuracy * 100:.2f}%"
-                )
+                st.metric("Accuracy", f"{accuracy * 100:.2f}%")
 
             with c2:
-                st.metric(
-                    "Precision",
-                    f"{precision * 100:.2f}%"
-                )
+                st.metric("Precision", f"{precision * 100:.2f}%")
 
             with c3:
-                st.metric(
-                    "Recall",
-                    f"{recall * 100:.2f}%"
-                )
+                st.metric("Recall", f"{recall * 100:.2f}%")
 
             with c4:
-                st.metric(
-                    "F1 Score",
-                    f"{f1 * 100:.2f}%"
-                )
+                st.metric("F1 Score", f"{f1 * 100:.2f}%")
 
             st.divider()
 
             st.subheader("🔲 Confusion Matrix")
 
-            st.dataframe(
-                dataframe_rows_from_matrix(
-                    matrix,
-                    [DISPLAY_NAMES[x] for x in CLASS_NAMES]
-                ),
-                use_container_width=True
+            matrix_df = pd.DataFrame(
+                matrix,
+                index=[DISPLAY_NAMES[x] for x in CLASS_NAMES],
+                columns=[DISPLAY_NAMES[x] for x in CLASS_NAMES]
             )
+
+            st.dataframe(matrix_df, use_container_width=True)
+
+            st.subheader("📊 Confusion Matrix Heatmap")
+
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.imshow(matrix, interpolation="nearest")
+            ax.set_title("Confusion Matrix")
+            ax.set_xlabel("Predicted Class")
+            ax.set_ylabel("Actual Class")
+            ax.set_xticks(range(len(CLASS_NAMES)))
+            ax.set_yticks(range(len(CLASS_NAMES)))
+            ax.set_xticklabels([DISPLAY_NAMES[x] for x in CLASS_NAMES],
+                               rotation=25, ha="right")
+            ax.set_yticklabels([DISPLAY_NAMES[x] for x in CLASS_NAMES])
+
+            for i in range(matrix.shape[0]):
+                for j in range(matrix.shape[1]):
+                    ax.text(j, i, int(matrix[i, j]),
+                            ha="center", va="center")
+
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
 
             st.divider()
 
-            correct = int(
-                np.sum(
-                    np.asarray(y_true) ==
-                    np.asarray(y_pred)
-                )
-            )
-
+            correct = int(np.sum(y_true == y_pred))
             incorrect = int(len(y_true) - correct)
 
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                st.metric(
-                    "Test Images",
-                    len(y_true)
-                )
+                st.metric("Test Images", len(y_true))
 
             with c2:
-                st.metric(
-                    "Correct",
-                    correct
-                )
+                st.metric("Correct", correct)
 
             with c3:
-                st.metric(
-                    "Evaluation Time",
-                    f"{elapsed:.2f} sec"
-                )
+                st.metric("Incorrect", incorrect)
+
+            st.caption(f"Evaluation time: {elapsed:.2f} seconds")
 
         except Exception as exc:
             st.error("❌ Test-set evaluation failed.")
@@ -1071,6 +1382,174 @@ elif page == "📊 Performance":
         except Exception as exc:
             st.error("❌ Training history could not be displayed.")
             st.code(str(exc))
+
+
+
+# ============================================================
+# ROC-AUC
+# ============================================================
+
+elif page == "📈 ROC-AUC":
+
+    st.title("📈 ROC Curve & AUC")
+    st.write(
+        "One-vs-rest ROC curves are calculated from the actual "
+        "test-set predictions when the test dataset is available."
+    )
+
+    try:
+        y_true, y_pred, y_prob = load_test_predictions()
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        auc_rows = []
+
+        for class_index, class_name in enumerate(CLASS_NAMES):
+            binary_true = (y_true == class_index).astype(int)
+
+            if len(np.unique(binary_true)) < 2:
+                st.warning(
+                    f"ROC-AUC for {DISPLAY_NAMES[class_name]} "
+                    "cannot be calculated because the test set "
+                    "does not contain both positive and negative samples."
+                )
+                continue
+
+            fpr, tpr, _ = roc_curve(
+                binary_true,
+                y_prob[:, class_index]
+            )
+            class_auc = auc(fpr, tpr)
+
+            ax.plot(
+                fpr,
+                tpr,
+                label=f"{DISPLAY_NAMES[class_name]} "
+                      f"(AUC = {class_auc:.4f})"
+            )
+
+            auc_rows.append({
+                "Class": DISPLAY_NAMES[class_name],
+                "AUC": round(float(class_auc), 4)
+            })
+
+        ax.plot([0, 1], [0, 1], linestyle="--")
+        ax.set_xlabel("False Positive Rate")
+        ax.set_ylabel("True Positive Rate")
+        ax.set_title("One-vs-Rest ROC Curves")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+        if auc_rows:
+            st.subheader("AUC Scores")
+            st.dataframe(
+                pd.DataFrame(auc_rows),
+                use_container_width=True
+            )
+
+    except Exception as exc:
+        st.error("❌ ROC-AUC calculation failed.")
+        st.code(str(exc))
+        st.info(
+            "Make sure the test folder exists and contains all "
+            "three class folders."
+        )
+
+
+# ============================================================
+# PREDICTION HISTORY
+# ============================================================
+
+elif page == "📜 Prediction History":
+
+    st.title("📜 Prediction History")
+
+    history_df = read_prediction_history()
+
+    if history_df.empty:
+        st.info(
+            "No saved predictions yet. Go to Disease Detection "
+            "and click 'Save This Prediction to History'."
+        )
+    else:
+        st.dataframe(
+            history_df,
+            use_container_width=True
+        )
+
+        st.download_button(
+            "⬇️ Download Prediction History",
+            data=history_df.to_csv(index=False).encode("utf-8"),
+            file_name="prediction_history.csv",
+            mime="text/csv"
+        )
+
+        if st.button("🗑️ Clear Prediction History"):
+            try:
+                os.remove(HISTORY_FILE)
+                st.success("✓ Prediction history cleared.")
+                st.rerun()
+            except Exception as exc:
+                st.error("❌ Could not clear history.")
+                st.code(str(exc))
+
+
+# ============================================================
+# PDF REPORT
+# ============================================================
+
+elif page == "📄 PDF Report":
+
+    st.title("📄 Generate Professional PDF Report")
+
+    if st.session_state.image is None:
+        st.warning(
+            "⚠️ First upload and analyze a potato leaf image "
+            "from the Home page."
+        )
+    else:
+        image = st.session_state.image
+        prediction = st.session_state.prediction
+        confidence = st.session_state.confidence
+
+        st.image(
+            image,
+            caption=st.session_state.filename or "Analyzed image",
+            width=450
+        )
+
+        st.subheader("Report Summary")
+        st.write(
+            f"**Prediction:** {DISPLAY_NAMES[prediction]}"
+        )
+        st.write(
+            f"**Confidence:** {confidence * 100:.2f}%"
+        )
+
+        if st.button("📄 Generate PDF Report"):
+            try:
+                with st.spinner("Creating PDF report..."):
+                    pdf_bytes = create_pdf_report()
+
+                st.success("✓ PDF report generated successfully.")
+
+                st.download_button(
+                    "⬇️ Download PDF Report",
+                    data=pdf_bytes,
+                    file_name="potato_disease_report.pdf",
+                    mime="application/pdf"
+                )
+
+            except Exception as exc:
+                st.error("❌ PDF report generation failed.")
+                st.code(str(exc))
+                st.info(
+                    "Make sure reportlab is installed from "
+                    "requirements.txt."
+                )
 
 
 # ============================================================
