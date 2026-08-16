@@ -187,9 +187,85 @@ def preprocess_image(image):
     return np.expand_dims(array, axis=0)
 
 
+
+def verify_potato_leaf_input(image):
+    """
+    Conservative input gate for the existing 3-class potato-leaf model.
+
+    The original model has only three classes, so this is a safety
+    filter for obvious unrelated images, not a mathematically
+    guaranteed potato-vs-non-potato classifier.
+    """
+    rgb = np.asarray(
+        image.convert("RGB").resize((224, 224)),
+        dtype=np.float32
+    )
+
+    hsv = np.asarray(
+        Image.fromarray(np.uint8(rgb)).convert("HSV"),
+        dtype=np.float32
+    )
+
+    h = hsv[:, :, 0]
+    s = hsv[:, :, 1] / 255.0
+    v = hsv[:, :, 2] / 255.0
+
+    green_mask = (
+        (h >= 25) &
+        (h <= 105) &
+        (s >= 0.20) &
+        (v >= 0.18)
+    )
+
+    brown_mask = (
+        (h >= 5) &
+        (h <= 35) &
+        (s >= 0.20) &
+        (v >= 0.18)
+    )
+
+    green_ratio = float(np.mean(green_mask))
+    brown_ratio = float(np.mean(brown_mask))
+    colorful_ratio = float(np.mean(s >= 0.15))
+
+    gray = np.mean(rgb, axis=2)
+    contrast = float(np.std(gray))
+
+    leaf_color_ratio = green_ratio + 0.35 * brown_ratio
+
+    color_ok = (
+        leaf_color_ratio >= 0.10 and
+        colorful_ratio >= 0.18
+    )
+
+    contrast_ok = contrast >= 18.0
+
+    accepted = bool(color_ok and contrast_ok)
+
+    return accepted
+
+
 def predict_image(image):
+
+    # ------------------------------------------------------------
+    # 1. REJECT OBVIOUS NON-POTATO-LEAF IMAGES
+    # ------------------------------------------------------------
+    if not verify_potato_leaf_input(image):
+        raise ValueError(
+            "This image does not appear to be a potato leaf. "
+            "Please upload a clear potato leaf photo."
+        )
+
+    # ------------------------------------------------------------
+    # 2. ORIGINAL MODEL PREDICTION
+    # ------------------------------------------------------------
     processed = preprocess_image(image)
-    output = model.predict(processed, verbose=0)
+
+    output = model.predict(
+        processed,
+        verbose=0
+    )
+
     output = np.asarray(output)
 
     if output.ndim == 2:
@@ -197,17 +273,23 @@ def predict_image(image):
     else:
         probabilities = output.reshape(-1)
 
-    # If the model returns logits rather than probabilities,
-    # convert them to probabilities safely.
     if (
         np.min(probabilities) < 0
         or np.max(probabilities) > 1.0
-        or not np.isclose(np.sum(probabilities), 1.0, atol=1e-3)
+        or not np.isclose(
+            np.sum(probabilities),
+            1.0,
+            atol=1e-3
+        )
     ):
         exp_values = np.exp(
             probabilities - np.max(probabilities)
         )
-        probabilities = exp_values / np.sum(exp_values)
+
+        probabilities = (
+            exp_values /
+            np.sum(exp_values)
+        )
 
     if len(probabilities) != len(CLASS_NAMES):
         raise ValueError(
@@ -218,6 +300,29 @@ def predict_image(image):
     index = int(np.argmax(probabilities))
     class_name = CLASS_NAMES[index]
     confidence = float(probabilities[index])
+
+    # ------------------------------------------------------------
+    # 3. UNCERTAIN PREDICTION PROTECTION
+    # ------------------------------------------------------------
+    safe_probabilities = np.clip(
+        probabilities,
+        1e-8,
+        1.0
+    )
+
+    entropy = float(
+        -np.sum(
+            safe_probabilities *
+            np.log(safe_probabilities)
+        )
+        / np.log(len(safe_probabilities))
+    )
+
+    if confidence < 0.55 and entropy > 0.80:
+        raise ValueError(
+            "The image could not be confidently identified as "
+            "a potato leaf. Please upload a clear potato leaf photo."
+        )
 
     return class_name, confidence, probabilities
 
@@ -777,6 +882,12 @@ if page == "🏠 Home":
 
     st.subheader("📁 Choose Image Source")
 
+    st.info(
+        "🔒 Potato-leaf input protection is enabled. "
+        "Obvious unrelated images are rejected before "
+        "disease prediction."
+    )
+
     uploaded_file = st.file_uploader(
         "📂 Upload a potato leaf image",
         type=["jpg", "jpeg", "png"],
@@ -860,7 +971,7 @@ if page == "🏠 Home":
                 else:
                     st.warning("⚠️ A disease pattern was detected.")
         except Exception as exc:
-            st.error("❌ Image analysis failed.")
+            st.error("❌ Invalid image: please upload a clear potato leaf photo.")
             st.code(str(exc))
     else:
         st.info("👆 Upload an image or click **Turn ON Camera** to take a photo.")
