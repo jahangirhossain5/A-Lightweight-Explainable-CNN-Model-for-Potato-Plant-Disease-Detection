@@ -9,7 +9,6 @@ import csv
 from io import BytesIO
 from datetime import datetime
 import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -223,23 +222,23 @@ def predict_image(image):
     return class_name, confidence, probabilities
 
 
-def find_conv_layer(layer):
-    # Direct Conv2D layer
-    if isinstance(layer, tf.keras.layers.Conv2D):
-        return layer
+def find_gradcam_target(container):
+    """Find the last Conv2D layer and the model/container that owns it."""
+    if not hasattr(container, "layers"):
+        return None, None
 
-    # Search inside nested Functional/Sequential models
-    if hasattr(layer, "layers"):
-        for child in reversed(layer.layers):
-            found = find_conv_layer(child)
-            if found is not None:
-                return found
-
-    return None
+    for layer in reversed(container.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            return layer, container
+        if hasattr(layer, "layers"):
+            found_layer, owner = find_gradcam_target(layer)
+            if found_layer is not None:
+                return found_layer, owner
+    return None, None
 
 
 def get_gradcam_model():
-    conv_layer = find_conv_layer(model)
+    conv_layer, owner = find_gradcam_target(model)
 
     if conv_layer is None:
         raise ValueError(
@@ -247,18 +246,48 @@ def get_gradcam_model():
             "Grad-CAM requires a convolutional layer."
         )
 
-    # Standard case: convolutional layer belongs to the loaded model.
+    # Directly connected convolutional layer.
+    if owner is model:
+        try:
+            return tf.keras.Model(
+                inputs=model.inputs,
+                outputs=[conv_layer.output, model.output]
+            ), conv_layer.name
+        except Exception as exc:
+            raise ValueError(
+                "The selected convolutional layer is not connected "
+                "to the model output."
+            ) from exc
+
+    # Nested model/backbone: rebuild the remaining path from the
+    # nested model output to the final model output.
     try:
-        grad_model = tf.keras.models.Model(
-            inputs=model.inputs,
-            outputs=[conv_layer.output, model.output]
+        owner_index = next(
+            i for i, layer in enumerate(model.layers)
+            if layer is owner
+        )
+    except StopIteration as exc:
+        raise ValueError(
+            "Could not locate the nested CNN inside the main model."
+        ) from exc
+
+    try:
+        x = owner.output
+        for layer in model.layers[owner_index + 1:]:
+            if isinstance(layer, tf.keras.layers.InputLayer):
+                continue
+            x = layer(x)
+
+        grad_model = tf.keras.Model(
+            inputs=owner.input,
+            outputs=[conv_layer.output, x]
         )
         return grad_model, conv_layer.name
-    except Exception:
+    except Exception as exc:
         raise ValueError(
-            "The model's convolutional layer could not be connected "
-            "to the model output for Grad-CAM."
-        )
+            "The nested convolutional layer could not be connected "
+            "to the final model output for Grad-CAM."
+        ) from exc
 
 
 def make_gradcam(image, class_index):
@@ -266,33 +295,28 @@ def make_gradcam(image, class_index):
     input_tensor = preprocess_image(image)
 
     with tf.GradientTape() as tape:
-        conv_output, predictions = grad_model(input_tensor)
+        conv_output, predictions = grad_model(input_tensor, training=False)
         score = predictions[:, class_index]
 
     gradients = tape.gradient(score, conv_output)
 
     if gradients is None:
-        raise ValueError("Gradients were not produced for Grad-CAM.")
+        raise ValueError(
+            "Gradients were not produced for Grad-CAM. "
+            "The selected convolutional layer may not be connected "
+            "to the requested prediction."
+        )
 
-    # Works for standard 4-D convolutional feature maps.
     if len(conv_output.shape) != 4:
         raise ValueError(
             f"Grad-CAM feature map has unsupported shape: {conv_output.shape}"
         )
 
-    weights = tf.reduce_mean(
-        gradients,
-        axis=(1, 2)
-    )
-
+    weights = tf.reduce_mean(gradients, axis=(1, 2))
     conv_output = conv_output[0]
     weights = weights[0]
 
-    heatmap = tf.reduce_sum(
-        conv_output * weights,
-        axis=-1
-    )
-
+    heatmap = tf.reduce_sum(conv_output * weights, axis=-1)
     heatmap = tf.maximum(heatmap, 0)
     maximum = tf.reduce_max(heatmap)
 
@@ -300,7 +324,6 @@ def make_gradcam(image, class_index):
         heatmap = heatmap / maximum
 
     return heatmap.numpy(), layer_name
-
 
 def make_overlay(image, heatmap):
     original = image.convert("RGB").resize(IMG_SIZE)
@@ -402,6 +425,19 @@ def get_top_predictions(probabilities, top_n=3):
     ]
 
 
+def show_top_predictions(probabilities, title="🏆 Top-3 Predictions"):
+    st.subheader(title)
+    for rank, (class_name, probability) in enumerate(
+        get_top_predictions(probabilities, 3), start=1
+    ):
+        c1, c2 = st.columns([4, 1])
+        with c1:
+            st.write(f"**#{rank} — {DISPLAY_NAMES[class_name]}**")
+            st.progress(min(max(probability, 0.0), 1.0))
+        with c2:
+            st.metric("Probability", f"{probability * 100:.2f}%")
+
+
 def estimate_attention_severity(heatmap):
     """
     This is an approximate Grad-CAM attention estimate, NOT a
@@ -486,149 +522,140 @@ def create_pdf_report():
     probabilities = np.asarray(st.session_state.probabilities)
     info = DISEASE_INFO[prediction]
 
-    heatmap, layer_name = make_gradcam(
-        image,
-        int(np.argmax(probabilities))
-    )
-    overlay = make_overlay(image, heatmap)
+    # Grad-CAM is optional for the PDF. The report must still be
+    # generated when the saved model architecture cannot support it.
+    gradcam_available = False
+    heatmap = None
+    overlay = None
+    layer_name = "Not available"
+    severity_ratio = 0.0
+    severity_level = "Not available"
 
-    severity_ratio, severity_level = estimate_attention_severity(heatmap)
+    try:
+        heatmap, layer_name = make_gradcam(
+            image, int(np.argmax(probabilities))
+        )
+        overlay = make_overlay(image, heatmap)
+        severity_ratio, severity_level = estimate_attention_severity(heatmap)
+        gradcam_available = True
+    except Exception:
+        # Do not fail PDF generation because Grad-CAM is unavailable.
+        pass
 
     pdf_buffer = BytesIO()
     document = SimpleDocTemplate(
-        pdf_buffer,
-        pagesize=A4,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=36,
-        bottomMargin=36
+        pdf_buffer, pagesize=A4, rightMargin=36, leftMargin=36,
+        topMargin=36, bottomMargin=36
     )
 
     styles = getSampleStyleSheet()
     title_style = styles["Title"]
     heading_style = styles["Heading2"]
     normal_style = styles["BodyText"]
-
     story = []
 
-    story.append(Paragraph(
-        "Potato Plant Disease Detection Report",
-        title_style
-    ))
+    story.append(Paragraph("Potato Plant Disease Detection Report", title_style))
     story.append(Spacer(1, 12))
-
     story.append(Paragraph(
         f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         normal_style
     ))
     story.append(Spacer(1, 8))
-
     story.append(Paragraph(
         f"<b>Prediction:</b> {DISPLAY_NAMES[prediction]}",
         heading_style
     ))
     story.append(Paragraph(
-        f"<b>Confidence:</b> {confidence * 100:.2f}%",
-        normal_style
+        f"<b>Confidence:</b> {confidence * 100:.2f}%", normal_style
     ))
     story.append(Paragraph(
-        f"<b>Grad-CAM layer:</b> {layer_name}",
-        normal_style
+        f"<b>Grad-CAM layer:</b> {layer_name}", normal_style
     ))
-    story.append(Paragraph(
-        f"<b>Attention severity estimate:</b> {severity_level} "
-        f"({severity_ratio * 100:.2f}% highly activated area)",
-        normal_style
-    ))
+    if gradcam_available:
+        story.append(Paragraph(
+            f"<b>Attention severity estimate:</b> {severity_level} "
+            f"({severity_ratio * 100:.2f}% highly activated area)",
+            normal_style
+        ))
+    else:
+        story.append(Paragraph(
+            "<b>Grad-CAM:</b> Not available for this model architecture.",
+            normal_style
+        ))
     story.append(Spacer(1, 12))
 
     original_buffer = BytesIO()
     image.save(original_buffer, format="PNG")
     original_buffer.seek(0)
 
-    overlay_buffer = BytesIO()
-    overlay.save(overlay_buffer, format="PNG")
-    overlay_buffer.seek(0)
+    cells = [ReportLabImage(original_buffer, width=3.1*inch, height=3.1*inch)]
+    if gradcam_available and overlay is not None:
+        overlay_buffer = BytesIO()
+        overlay.save(overlay_buffer, format="PNG")
+        overlay_buffer.seek(0)
+        cells.append(ReportLabImage(overlay_buffer, width=3.1*inch, height=3.1*inch))
+    else:
+        cells.append(Paragraph(
+            "<b>Grad-CAM unavailable</b><br/>"
+            "The prediction was generated successfully, but the saved "
+            "model could not provide a compatible Grad-CAM graph.",
+            normal_style
+        ))
 
-    image_table = Table([
-        [
-            ReportLabImage(original_buffer, width=3.1*inch, height=3.1*inch),
-            ReportLabImage(overlay_buffer, width=3.1*inch, height=3.1*inch)
-        ]
-    ], colWidths=[3.2*inch, 3.2*inch])
-
+    image_table = Table([cells], colWidths=[3.2*inch, 3.2*inch])
     image_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("ALIGN", (0, 0), (-1, -1), "CENTER")
     ]))
-
     story.append(image_table)
     story.append(Spacer(1, 12))
 
-    story.append(Paragraph(
-        "Class Probability Distribution",
-        heading_style
-    ))
-
-    probability_rows = [["Class", "Probability"]]
-    for class_name, value in get_top_predictions(probabilities, 3):
+    story.append(Paragraph("Top-3 Class Probabilities", heading_style))
+    probability_rows = [["Rank", "Class", "Probability"]]
+    for rank, (class_name, value) in enumerate(get_top_predictions(probabilities, 3), 1):
         probability_rows.append([
-            DISPLAY_NAMES[class_name],
-            f"{value * 100:.2f}%"
+            str(rank), DISPLAY_NAMES[class_name], f"{value * 100:.2f}%"
         ])
-
-    probability_table = Table(
-        probability_rows,
-        colWidths=[4.0*inch, 2.0*inch]
-    )
+    probability_table = Table(probability_rows, colWidths=[0.7*inch, 3.3*inch, 2.0*inch])
     probability_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (1, 1), (1, -1), "RIGHT")
+        ("ALIGN", (0, 0), (-1, -1), "CENTER")
     ]))
     story.append(probability_table)
     story.append(Spacer(1, 12))
 
-    story.append(Paragraph("Description", heading_style))
-    story.append(Paragraph(info["description"], normal_style))
-    story.append(Spacer(1, 8))
+    for title, key in [
+        ("Description", "description"),
+        ("Symptoms", "symptoms"),
+        ("Possible Causes", "causes"),
+        ("Recommended Actions", "actions"),
+        ("Prevention", "prevention")
+    ]:
+        story.append(Paragraph(title, heading_style))
+        value = info[key]
+        if isinstance(value, list):
+            for item in value:
+                story.append(Paragraph(f"• {item}", normal_style))
+        else:
+            story.append(Paragraph(str(value), normal_style))
+        story.append(Spacer(1, 8))
 
-    story.append(Paragraph("Symptoms", heading_style))
-    for item in info["symptoms"]:
-        story.append(Paragraph(f"• {item}", normal_style))
-
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("Possible Causes", heading_style))
-    for item in info["causes"]:
-        story.append(Paragraph(f"• {item}", normal_style))
-
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("Recommended Actions", heading_style))
-    for item in info["actions"]:
-        story.append(Paragraph(f"• {item}", normal_style))
-
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("Prevention", heading_style))
-    for item in info["prevention"]:
-        story.append(Paragraph(f"• {item}", normal_style))
-
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 10))
     story.append(Paragraph(
         "Disclaimer: This report provides AI-based preliminary "
-        "classification and general information. The Grad-CAM "
-        "attention severity is an experimental visualization metric, "
-        "not a scientifically validated disease-severity percentage. "
-        "For serious or rapidly spreading crop disease, consult a "
-        "qualified agricultural professional.",
+        "classification and general information. Grad-CAM attention "
+        "severity, when available, is an experimental visualization "
+        "metric and not a scientifically validated disease-severity "
+        "percentage. For serious or rapidly spreading crop disease, "
+        "consult a qualified agricultural professional.",
         normal_style
     ))
 
     document.build(story)
     pdf_buffer.seek(0)
     return pdf_buffer.getvalue()
-
 
 def get_test_directory():
     test_candidates = [
@@ -734,100 +761,109 @@ st.sidebar.caption("PDF • ROC-AUC • History • Batch Analysis")
 if page == "🏠 Home":
 
     st.title("🥔 Potato Plant Disease Detection System")
-
     st.markdown(
         """
         ### AI-powered potato leaf analysis
 
-        Upload **one image here only**. After analysis, the same
-        image and prediction are automatically available in:
-
-        **Disease Detection → Explainable AI → Disease Information
-        → Causes & Solutions**
+        Upload a potato leaf image, or turn on the camera only when
+        you want to take a photo.
         """
     )
 
-    selected_file = st.file_uploader(
-        "📷 Upload a potato leaf image",
+    if "camera_enabled" not in st.session_state:
+        st.session_state.camera_enabled = False
+    if "camera_capture_bytes" not in st.session_state:
+        st.session_state.camera_capture_bytes = None
+
+    st.subheader("📁 Choose Image Source")
+
+    uploaded_file = st.file_uploader(
+        "📂 Upload a potato leaf image",
         type=["jpg", "jpeg", "png"],
-        key="main_uploader"
+        key="home_upload"
     )
 
-    camera_file = st.camera_input(
-        "📷 Or take a potato leaf photo with your camera",
-        key="main_camera"
-    )
+    st.divider()
 
-    selected_file = selected_file if selected_file is not None else camera_file
+    if not st.session_state.camera_enabled:
+        st.write("📷 **Camera is OFF**")
+        if st.button(
+            "📷 Turn ON Camera",
+            type="primary",
+            use_container_width=True,
+            key="turn_on_camera"
+        ):
+            st.session_state.camera_enabled = True
+            st.session_state.camera_capture_bytes = None
+            st.rerun()
+    else:
+        st.success("📷 **Camera is ON**")
+        if st.button(
+            "❌ Turn OFF Camera",
+            type="secondary",
+            use_container_width=True,
+            key="turn_off_camera"
+        ):
+            st.session_state.camera_enabled = False
+            st.session_state.camera_capture_bytes = None
+            st.rerun()
+
+        camera_file = st.camera_input(
+            "Take a photo of the potato leaf",
+            key="home_camera"
+        )
+        if camera_file is not None:
+            st.session_state.camera_capture_bytes = camera_file.getvalue()
+
+    st.divider()
+
+    selected_file = None
+    selected_filename = None
+    image_source = None
+
+    if uploaded_file is not None:
+        selected_file = uploaded_file
+        selected_filename = uploaded_file.name
+        image_source = "Upload"
+    elif st.session_state.camera_capture_bytes is not None:
+        selected_file = BytesIO(st.session_state.camera_capture_bytes)
+        selected_filename = "camera_capture.jpg"
+        image_source = "Camera"
 
     if selected_file is not None:
         try:
             image = Image.open(selected_file).convert("RGB")
+            st.subheader("🖼️ Selected Image")
+            st.image(image, caption=f"{image_source}: {selected_filename}", use_container_width=True)
 
-            with st.spinner("Analyzing the potato leaf..."):
-                predicted_class, confidence, probabilities = predict_image(image)
+            if st.button(
+                "🔍 Analyze Image",
+                type="primary",
+                use_container_width=True,
+                key="home_analyze"
+            ):
+                with st.spinner("Analyzing the potato leaf..."):
+                    predicted_class, confidence, probabilities = predict_image(image)
 
-            st.session_state.image = image
-            st.session_state.prediction = predicted_class
-            st.session_state.confidence = confidence
-            st.session_state.probabilities = probabilities
-            st.session_state.filename = selected_file.name
+                st.session_state.image = image
+                st.session_state.prediction = predicted_class
+                st.session_state.confidence = confidence
+                st.session_state.probabilities = probabilities
+                st.session_state.filename = selected_filename
 
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.image(
-                    image,
-                    caption=selected_file.name,
-                    use_container_width=True
-                )
-
-            with col2:
-                st.subheader("🎯 Detection Result")
-                st.success(DISPLAY_NAMES[predicted_class])
-                st.metric(
-                    "Confidence",
-                    f"{confidence * 100:.2f}%"
-                )
+                st.success(f"🎯 Prediction: {DISPLAY_NAMES[predicted_class]}")
+                st.metric("Confidence", f"{confidence * 100:.2f}%")
+                show_top_predictions(probabilities)
 
                 if predicted_class == "Potato___healthy":
-                    st.success("✅ No strong disease pattern was detected.")
+                    st.success("✅ The model classified this leaf as healthy.")
                 else:
                     st.warning("⚠️ A disease pattern was detected.")
-
-            st.divider()
-
-            st.subheader("📊 All Class Probabilities")
-
-            for i, class_name in enumerate(CLASS_NAMES):
-                value = float(probabilities[i])
-                st.write(DISPLAY_NAMES[class_name])
-                st.progress(min(max(value, 0.0), 1.0))
-                st.caption(f"{value * 100:.2f}%")
-
-            st.success(
-                "✓ Done. You do not need to upload this image again "
-                "for the other single-image sections."
-            )
-
         except Exception as exc:
             st.error("❌ Image analysis failed.")
             st.code(str(exc))
-
-    elif st.session_state.image is not None:
-        st.info(
-            "An image is already loaded. Use the sidebar to view "
-            "the analysis, or upload another image above."
-        )
-
-        st.image(
-            st.session_state.image,
-            caption=st.session_state.filename or "Loaded image",
-            width=500
-        )
-
     else:
-        st.info("👆 Upload a potato leaf image to begin.")
+        st.info("👆 Upload an image or click **Turn ON Camera** to take a photo.")
 
 
 # ============================================================
@@ -887,6 +923,28 @@ if page == "🔍 Disease Detection":
             )
 
     st.divider()
+
+    show_top_predictions(probabilities)
+
+    st.divider()
+
+    if st.button(
+        "💾 Save Prediction to History",
+        type="primary",
+        use_container_width=True,
+        key="save_prediction_history"
+    ):
+        try:
+            append_prediction_history(
+                st.session_state.filename,
+                predicted_class,
+                confidence,
+                probabilities
+            )
+            st.success("✓ Prediction saved successfully!")
+        except Exception as exc:
+            st.error("❌ Could not save prediction history.")
+            st.code(str(exc))
 
     st.subheader("📊 Class Probability Distribution")
 
@@ -1028,6 +1086,20 @@ elif page == "📚 Disease Information":
     for item in info["causes"]:
         st.write(f"• {item}")
 
+    st.divider()
+    st.subheader("⚡ Recommended Actions")
+    for item in info["actions"]:
+        st.write(f"✅ {item}")
+
+    st.divider()
+    st.subheader("🛡️ Prevention")
+    for item in info["prevention"]:
+        st.write(f"• {item}")
+
+    st.warning(
+        "AI-based preliminary information only. For serious or rapidly "
+        "spreading crop disease, consult a qualified agricultural professional."
+    )
 
 # ============================================================
 # CAUSES & SOLUTIONS
@@ -1102,13 +1174,17 @@ elif page == "📦 Batch Analysis":
         for index, file in enumerate(files):
             try:
                 image = Image.open(file).convert("RGB")
-                predicted_class, confidence, _ = predict_image(image)
-
-                rows.append({
+                predicted_class, confidence, probabilities = predict_image(image)
+                top = get_top_predictions(probabilities, 3)
+                row = {
                     "Image": file.name,
                     "Prediction": DISPLAY_NAMES[predicted_class],
                     "Confidence": f"{confidence * 100:.2f}%"
-                })
+                }
+                for rank, (class_name, value) in enumerate(top, 1):
+                    row[f"Top-{rank}"] = DISPLAY_NAMES[class_name]
+                    row[f"Top-{rank} Probability"] = f"{value * 100:.2f}%"
+                rows.append(row)
 
             except Exception as exc:
                 rows.append({
@@ -1246,7 +1322,6 @@ elif page == "📊 Performance":
 
             st.subheader("📊 Confusion Matrix Heatmap")
 
-            fig, ax = plt.subplots(figsize=(7, 5))
             ax.imshow(matrix, interpolation="nearest")
             ax.set_title("Confusion Matrix")
             ax.set_xlabel("Predicted Class")
@@ -1264,7 +1339,6 @@ elif page == "📊 Performance":
 
             fig.tight_layout()
             st.pyplot(fig)
-            plt.close(fig)
 
             st.divider()
 
@@ -1392,71 +1466,50 @@ elif page == "📊 Performance":
 elif page == "📈 ROC-AUC":
 
     st.title("📈 ROC Curve & AUC")
-    st.write(
-        "One-vs-rest ROC curves are calculated from the actual "
-        "test-set predictions when the test dataset is available."
-    )
+    st.write("One-vs-rest ROC curves are calculated from the actual test-set predictions.")
 
     try:
         y_true, y_pred, y_prob = load_test_predictions()
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-
         auc_rows = []
+        curve_df = pd.DataFrame({"False Positive Rate": np.linspace(0, 1, 101)})
 
         for class_index, class_name in enumerate(CLASS_NAMES):
-            binary_true = (y_true == class_index).astype(int)
-
+            binary_true = (np.asarray(y_true) == class_index).astype(int)
             if len(np.unique(binary_true)) < 2:
-                st.warning(
-                    f"ROC-AUC for {DISPLAY_NAMES[class_name]} "
-                    "cannot be calculated because the test set "
-                    "does not contain both positive and negative samples."
-                )
                 continue
-
-            fpr, tpr, _ = roc_curve(
-                binary_true,
-                y_prob[:, class_index]
-            )
+            fpr, tpr, _ = roc_curve(binary_true, y_prob[:, class_index])
             class_auc = auc(fpr, tpr)
-
-            ax.plot(
-                fpr,
-                tpr,
-                label=f"{DISPLAY_NAMES[class_name]} "
-                      f"(AUC = {class_auc:.4f})"
+            auc_rows.append({"Class": DISPLAY_NAMES[class_name], "AUC": round(float(class_auc), 4)})
+            curve_df[DISPLAY_NAMES[class_name]] = np.interp(
+                curve_df["False Positive Rate"].to_numpy(), fpr, tpr
             )
 
-            auc_rows.append({
-                "Class": DISPLAY_NAMES[class_name],
-                "AUC": round(float(class_auc), 4)
-            })
-
-        ax.plot([0, 1], [0, 1], linestyle="--")
-        ax.set_xlabel("False Positive Rate")
-        ax.set_ylabel("True Positive Rate")
-        ax.set_title("One-vs-Rest ROC Curves")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-        st.pyplot(fig)
-        plt.close(fig)
-
-        if auc_rows:
-            st.subheader("AUC Scores")
-            st.dataframe(
-                pd.DataFrame(auc_rows),
+        if not auc_rows:
+            st.warning("ROC-AUC could not be calculated from the available test data.")
+        else:
+            auc_df = pd.DataFrame(auc_rows)
+            st.dataframe(auc_df, use_container_width=True)
+            st.line_chart(
+                curve_df.set_index("False Positive Rate"),
                 use_container_width=True
+            )
+            st.caption("A random classifier corresponds to AUC = 0.50.")
+            st.download_button(
+                "⬇️ Download ROC-AUC CSV",
+                data=auc_df.to_csv(index=False).encode("utf-8"),
+                file_name="roc_auc_scores.csv",
+                mime="text/csv"
+            )
+            st.download_button(
+                "⬇️ Download ROC Curve Points",
+                data=curve_df.to_csv(index=False).encode("utf-8"),
+                file_name="roc_curve_points.csv",
+                mime="text/csv"
             )
 
     except Exception as exc:
         st.error("❌ ROC-AUC calculation failed.")
         st.code(str(exc))
-        st.info(
-            "Make sure the test folder exists and contains all "
-            "three class folders."
-        )
 
 
 # ============================================================
